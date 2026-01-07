@@ -1,0 +1,37 @@
+# Note: cloudflare/sandbox only has amd64 images.
+FROM --platform=linux/amd64 docker.io/cloudflare/sandbox:0.5.6
+
+# Install basic tools
+RUN apt-get update && apt-get install -y \
+    git \
+    ca-certificates \
+    curl \
+    procps \
+    net-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install cloudflared
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "amd64" ]; then ARCH="amd64"; \
+    elif [ "$TARGETARCH" = "arm64" ]; then ARCH="arm64"; \
+    else ARCH="amd64"; fi && \
+    curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb && \
+    dpkg -i cloudflared.deb && \
+    rm cloudflared.deb
+
+# Setup workspace
+COPY container/ /workspace/container/
+WORKDIR /workspace/container
+RUN bun install && bun run build
+
+# Setup CLI alias
+RUN ln -sf /workspace/container/cli-tools.ts /usr/local/bin/monitor-cli
+
+# Expose port
+EXPOSE 3000
+
+# Set working directory for app
+WORKDIR /container-server
+
+# Start container
+CMD ["./startup.sh"]
