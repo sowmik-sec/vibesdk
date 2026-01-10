@@ -9,8 +9,8 @@ import type { CodeGeneratorAgent } from './codingAgent';
 const logger = createLogger('CodeGeneratorWebSocket');
 
 export function handleWebSocketMessage(
-    agent: CodeGeneratorAgent, 
-    connection: Connection, 
+    agent: CodeGeneratorAgent,
+    connection: Connection,
     message: string
 ): void {
     try {
@@ -25,11 +25,11 @@ export function handleWebSocketMessage(
             }
             case WebSocketMessageRequests.GENERATE_ALL:
                 // Set shouldBeGenerating flag to indicate persistent intent
-                agent.setState({ 
-                    ...agent.state, 
-                    shouldBeGenerating: true 
+                agent.setState({
+                    ...agent.state,
+                    shouldBeGenerating: true
                 });
-                
+
                 // Check if generation is already active to avoid duplicate processes
                 if (agent.getBehavior().isCodeGenerating()) {
                     logger.info('Generation already in progress, skipping duplicate request');
@@ -38,7 +38,7 @@ export function handleWebSocketMessage(
                     // });
                     return;
                 }
-                
+
                 // Start generation process
                 logger.info('Starting code generation process');
                 agent.getBehavior().generateAllFiles().catch(error => {
@@ -48,9 +48,9 @@ export function handleWebSocketMessage(
                     // Only clear shouldBeGenerating on successful completion
                     // (errors might want to retry, so this could be handled differently)
                     if (!agent.getBehavior().isCodeGenerating()) {
-                        agent.setState({ 
-                            ...agent.state, 
-                            shouldBeGenerating: false 
+                        agent.setState({
+                            ...agent.state,
+                            shouldBeGenerating: false
                         });
                     }
                 });
@@ -88,18 +88,18 @@ export function handleWebSocketMessage(
                 break;
             case WebSocketMessageRequests.STOP_GENERATION: {
                 logger.info('User requested to stop generation');
-                
+
                 // Cancel current inference operation
                 const wasCancelled = agent.getBehavior().cancelCurrentInference();
-                
+
                 // Clear shouldBeGenerating flag
-                agent.setState({ 
-                    ...agent.state, 
-                    shouldBeGenerating: false 
+                agent.setState({
+                    ...agent.state,
+                    shouldBeGenerating: false
                 });
-                
+
                 sendToConnection(connection, WebSocketMessageResponses.GENERATION_STOPPED, {
-                    message: wasCancelled 
+                    message: wasCancelled
                         ? 'Inference operation cancelled successfully'
                         : 'No active inference to cancel'
                 });
@@ -108,11 +108,11 @@ export function handleWebSocketMessage(
             case WebSocketMessageRequests.RESUME_GENERATION:
                 // Set shouldBeGenerating and restart generation
                 logger.info('Resuming code generation');
-                agent.setState({ 
-                    ...agent.state, 
-                    shouldBeGenerating: true 
+                agent.setState({
+                    ...agent.state,
+                    shouldBeGenerating: true
                 });
-                
+
                 if (!agent.getBehavior().isCodeGenerating()) {
                     sendToConnection(connection, WebSocketMessageResponses.GENERATION_RESUMED, {
                         message: 'Code generation resumed'
@@ -142,19 +142,19 @@ export function handleWebSocketMessage(
                     hasImages: !!parsedMessage.images && parsedMessage.images.length > 0,
                     imageCount: parsedMessage.images?.length || 0
                 });
-                
+
                 if (!parsedMessage.message) {
                     sendError(connection, 'No message provided in user suggestion');
                     return;
                 }
-                
+
                 // Validate image count and size
                 if (parsedMessage.images && parsedMessage.images.length > 0) {
                     if (parsedMessage.images.length > MAX_IMAGES_PER_MESSAGE) {
                         sendError(connection, `Maximum ${MAX_IMAGES_PER_MESSAGE} images allowed per message. Received ${parsedMessage.images.length} images.`);
                         return;
                     }
-                    
+
                     // Validate each image size
                     for (const image of parsedMessage.images) {
                         if (image.size > MAX_IMAGE_SIZE_BYTES) {
@@ -163,7 +163,7 @@ export function handleWebSocketMessage(
                         }
                     }
                 }
-                
+
                 agent.handleUserInput(parsedMessage.message, parsedMessage.images).catch((error: unknown) => {
                     logger.error('Error handling user suggestion:', error);
                     sendError(connection, `Error processing user suggestion: ${error instanceof Error ? error.message : String(error)}`);
@@ -196,7 +196,7 @@ export function handleWebSocketMessage(
                     const state = agent.getConversationState();
                     const debugState = agent.getBehavior().getDeepDebugSessionState();
                     logger.info('Conversation state retrieved', state);
-                    sendToConnection(connection, WebSocketMessageResponses.CONVERSATION_STATE, { 
+                    sendToConnection(connection, WebSocketMessageResponses.CONVERSATION_STATE, {
                         state,
                         deepDebugSession: debugState
                     });
@@ -212,12 +212,12 @@ export function handleWebSocketMessage(
             //         command: parsedMessage.command,
             //         timestamp: parsedMessage.timestamp
             //     });
-                
+
             //     if (!parsedMessage.command) {
             //         sendError(connection, 'No command provided');
             //         return;
             //     }
-                
+
             //     // Execute terminal command  
             //     agent.executeTerminalCommand(parsedMessage.command, connection as any)
             //         .catch((error: unknown) => {
@@ -229,6 +229,74 @@ export function handleWebSocketMessage(
             //             });
             //         });
             //     break;
+            case WebSocketMessageRequests.DESIGN_MODE_STYLE_UPDATE:
+                // Handle design mode style update
+                logger.info('Received design mode style update', {
+                    selector: parsedMessage.selector,
+                    changesCount: parsedMessage.changes?.length || 0
+                });
+
+                import('../design-mode/design-mode-handler').then(({ handleDesignModeStyleUpdate }) => {
+                    handleDesignModeStyleUpdate(
+                        agent.getBehavior(),
+                        connection as any,
+                        parsedMessage,
+                        logger
+                    ).catch((error: unknown) => {
+                        logger.error('Error handling design mode style update:', error);
+                        sendError(connection, `Error applying style: ${error instanceof Error ? error.message : String(error)}`);
+                    });
+                });
+                break;
+            case WebSocketMessageRequests.DESIGN_MODE_AI_PROMPT:
+                // Handle design mode AI prompt
+                logger.info('Received design mode AI prompt', {
+                    promptLength: parsedMessage.prompt?.length || 0,
+                    selector: parsedMessage.elementContext?.selector
+                });
+
+                import('../design-mode/design-mode-handler').then(({ handleDesignModeAIPrompt }) => {
+                    handleDesignModeAIPrompt(
+                        agent.getBehavior(),
+                        connection as any,
+                        parsedMessage,
+                        logger
+                    ).catch((error: unknown) => {
+                        logger.error('Error handling design mode AI prompt:', error);
+                        sendError(connection, `Error processing AI prompt: ${error instanceof Error ? error.message : String(error)}`);
+                    });
+                });
+                break;
+            case WebSocketMessageRequests.DESIGN_MODE_TEXT_UPDATE:
+                // Handle design mode text update
+                logger.info('Received design mode text update', {
+                    selector: parsedMessage.selector
+                });
+
+                import('../design-mode/design-mode-handler').then(({ handleDesignModeTextUpdate }) => {
+                    handleDesignModeTextUpdate(
+                        agent.getBehavior(),
+                        connection as any,
+                        parsedMessage,
+                        logger
+                    ).catch((error: unknown) => {
+                        logger.error('Error handling design mode text update:', error);
+                        sendError(connection, `Error updating text: ${error instanceof Error ? error.message : String(error)}`);
+                    });
+                });
+                break;
+            case WebSocketMessageRequests.DESIGN_MODE_UNDO:
+            case WebSocketMessageRequests.DESIGN_MODE_REDO:
+                // Handle undo/redo - currently these would need history tracking
+                logger.info(`Received design mode ${parsedMessage.type}`, {
+                    entryId: parsedMessage.entryId
+                });
+                sendToConnection(connection, WebSocketMessageResponses.DESIGN_MODE_STYLE_UPDATED, {
+                    success: false,
+                    selector: parsedMessage.selector || '',
+                    error: 'Undo/redo not yet implemented'
+                });
+                break;
             default:
                 sendError(connection, `Unknown message type: ${parsedMessage.type}`);
         }
@@ -256,8 +324,8 @@ export function broadcastToConnections<T extends WebSocketMessageType>(
 }
 
 export function sendToConnection<T extends WebSocketMessageType>(
-    connection: WebSocket, 
-    type: T, 
+    connection: WebSocket,
+    type: T,
     data: WebSocketMessageData<T>
 ): void {
     try {
