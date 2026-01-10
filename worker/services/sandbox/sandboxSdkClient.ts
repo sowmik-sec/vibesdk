@@ -573,9 +573,9 @@ export class SandboxSdkClient extends BaseSandboxService {
     /**
      * Waits for the development server to be ready by monitoring logs for readiness indicators
      */
-    private async waitForServerReady(instanceId: string, processId: string, maxWaitTimeMs: number = 10000): Promise<boolean> {
+    private async waitForServerReady(instanceId: string, processId: string, maxWaitTimeMs: number = 30000): Promise<boolean> {
         const startTime = Date.now();
-        const pollIntervalMs = 500;
+        const pollIntervalMs = 150; // Fast polling for quicker server detection
         const maxAttempts = Math.ceil(maxWaitTimeMs / pollIntervalMs);
 
         // Patterns that indicate the server is ready
@@ -937,7 +937,7 @@ export class SandboxSdkClient extends BaseSandboxService {
 
             this.logger.info('Installing dependencies', { instanceId });
             const [installResult, tunnelURL] = await Promise.all([
-                this.executeCommand(instanceId, `bun install`, { timeout: 120000 }),
+                this.executeCommand(instanceId, `bun install --frozen-lockfile 2>/dev/null || bun install`, { timeout: 60000 }),
                 tunnelUrlPromise
             ]);
             this.logger.info('Dependencies installed', { instanceId, tunnelURL });

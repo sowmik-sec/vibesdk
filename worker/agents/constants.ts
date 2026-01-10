@@ -24,22 +24,22 @@ export const WebSocketMessageResponses: Record<string, WebSocketMessageType> = {
 
     RUNTIME_ERROR_FOUND: 'runtime_error_found',
     STATIC_ANALYSIS_RESULTS: 'static_analysis_results',
-    
+
     DEPLOYMENT_STARTED: 'deployment_started',
     DEPLOYMENT_COMPLETED: 'deployment_completed',
     DEPLOYMENT_FAILED: 'deployment_failed',
     PREVIEW_FORCE_REFRESH: 'preview_force_refresh',
     // Cloudflare deployment messages
     CLOUDFLARE_DEPLOYMENT_STARTED: 'cloudflare_deployment_started',
-    CLOUDFLARE_DEPLOYMENT_COMPLETED: 'cloudflare_deployment_completed', 
+    CLOUDFLARE_DEPLOYMENT_COMPLETED: 'cloudflare_deployment_completed',
     CLOUDFLARE_DEPLOYMENT_ERROR: 'cloudflare_deployment_error',
-    
+
     // Screenshot messages
     SCREENSHOT_CAPTURE_STARTED: 'screenshot_capture_started',
     SCREENSHOT_CAPTURE_SUCCESS: 'screenshot_capture_success',
     SCREENSHOT_CAPTURE_ERROR: 'screenshot_capture_error',
     SCREENSHOT_ANALYSIS_RESULT: 'screenshot_analysis_result',
-    
+
     ERROR: 'error',
     RATE_LIMIT_ERROR: 'rate_limit_error',
 
@@ -49,20 +49,20 @@ export const WebSocketMessageResponses: Record<string, WebSocketMessageType> = {
     COMMAND_EXECUTING: 'command_executing',
     COMMAND_EXECUTED: 'command_executed',
     COMMAND_EXECUTION_FAILED: 'command_execution_failed',
-    
+
     // Generation control messages
     GENERATION_STOPPED: 'generation_stopped',
     GENERATION_RESUMED: 'generation_resumed',
 
     DETERMINISTIC_CODE_FIX_STARTED: 'deterministic_code_fix_started',
     DETERMINISTIC_CODE_FIX_COMPLETED: 'deterministic_code_fix_completed',
-    
+
     // GitHub export messages
     GITHUB_EXPORT_STARTED: 'github_export_started',
     GITHUB_EXPORT_PROGRESS: 'github_export_progress',
     GITHUB_EXPORT_COMPLETED: 'github_export_completed',
     GITHUB_EXPORT_ERROR: 'github_export_error',
-    
+
     // Conversational AI messages
     USER_SUGGESTIONS_PROCESSING: 'user_suggestions_processing',
     CONVERSATION_RESPONSE: 'conversation_response',
@@ -75,13 +75,17 @@ export const WebSocketMessageResponses: Record<string, WebSocketMessageType> = {
 
     // Model configuration info
     MODEL_CONFIGS_INFO: 'model_configs_info',
-    
+
     // Terminal messages
     TERMINAL_OUTPUT: 'terminal_output',
     SERVER_LOG: 'server_log',
 
     // Vault messages
     VAULT_REQUIRED: 'vault_required',
+
+    // Design mode responses
+    DESIGN_MODE_STYLE_UPDATED: 'design_mode_style_updated',
+    DESIGN_MODE_CODE_LOCATION: 'design_mode_code_location',
 } as const satisfies Record<string, WebSocketMessageType>;
 
 // WebSocket message types
@@ -98,24 +102,32 @@ export const WebSocketMessageRequests = {
     CAPTURE_SCREENSHOT: 'capture_screenshot',
     STOP_GENERATION: 'stop_generation',
     RESUME_GENERATION: 'resume_generation',
-    
+
     // GitHub export request
     GITHUB_EXPORT: 'github_export',
-    
+
     // Conversational AI requests
     USER_SUGGESTION: 'user_suggestion',
     CLEAR_CONVERSATION: 'clear_conversation',
     GET_CONVERSATION_STATE: 'get_conversation_state',
-    
+
     // Model configuration info request
     GET_MODEL_CONFIGS: 'get_model_configs',
-    
+
     // Terminal command request
     TERMINAL_COMMAND: 'terminal_command',
 
     // Vault session sync (SK sent to vault WebSocket, only sessionId here)
     VAULT_UNLOCKED: 'vault_unlocked',
     VAULT_LOCKED: 'vault_locked',
+
+    // Design mode requests
+    DESIGN_MODE_STYLE_UPDATE: 'design_mode_style_update',
+    DESIGN_MODE_AI_PROMPT: 'design_mode_ai_prompt',
+    DESIGN_MODE_TEXT_UPDATE: 'design_mode_text_update',
+    DESIGN_MODE_UNDO: 'design_mode_undo',
+    DESIGN_MODE_REDO: 'design_mode_redo',
+    DESIGN_MODE_GO_TO_CODE: 'design_mode_go_to_code',
 };
 
 export const PREVIEW_EXPIRED_ERROR = 'Preview expired, attempting redeploy. Please try again after a minute or refresh the page';
