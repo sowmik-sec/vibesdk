@@ -10,6 +10,18 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     && rm -rf /var/lib/apt/lists/*
 
+# Configure Bun for optimal caching
+ENV BUN_INSTALL_CACHE_DIR=/workspace/.bun-cache
+RUN mkdir -p /workspace/.bun-cache && chmod 777 /workspace/.bun-cache
+
+# Pre-install common packages to warm cache (reduces per-project install time significantly)
+# These are the most frequently used packages in generated apps
+WORKDIR /workspace/warm-cache
+RUN echo '{"dependencies":{"react":"^19","react-dom":"^19","vite":"^6","@vitejs/plugin-react":"^4","tailwindcss":"^4","postcss":"^8","autoprefixer":"^10","typescript":"^5","@types/react":"^19","@types/react-dom":"^19","lucide-react":"latest","clsx":"^2","tailwind-merge":"^2"}}' > package.json && \
+    bun install --no-save && \
+    rm -rf /workspace/warm-cache
+
+
 # Install cloudflared
 ARG TARGETARCH
 RUN if [ "$TARGETARCH" = "amd64" ]; then ARCH="amd64"; \
