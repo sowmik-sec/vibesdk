@@ -1,14 +1,15 @@
 import { useEffect, useState, useRef, forwardRef, useCallback } from 'react';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { WebSocket } from 'partysocket';
+import { getDesignModeClientScript } from '@/lib/design-mode/design-mode-client-inline';
 
 interface PreviewIframeProps {
-    src: string;
-    className?: string;
-    title?: string;
-    shouldRefreshPreview?: boolean;
-    manualRefreshTrigger?: number;
-    webSocket?: WebSocket | null;
+	src: string;
+	className?: string;
+	title?: string;
+	shouldRefreshPreview?: boolean;
+	manualRefreshTrigger?: number;
+	webSocket?: WebSocket | null;
 }
 
 // ============================================================================
@@ -16,11 +17,11 @@ interface PreviewIframeProps {
 // ============================================================================
 
 interface LoadState {
-    status: 'idle' | 'loading' | 'postload' | 'loaded' | 'error';
-    attempt: number;
-    loadedSrc: string | null;
-    errorMessage: string | null;
-    previewType?: 'sandbox' | 'dispatcher';
+	status: 'idle' | 'loading' | 'postload' | 'loaded' | 'error';
+	attempt: number;
+	loadedSrc: string | null;
+	errorMessage: string | null;
+	previewType?: 'sandbox' | 'dispatcher';
 }
 
 const MAX_RETRIES = 10;
@@ -39,7 +40,7 @@ const getRetryDelay = (attempt: number): number => {
 
 export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 	({ src, className = '', title = 'Preview', shouldRefreshPreview = false, manualRefreshTrigger, webSocket }, ref) => {
-		
+
 		const [loadState, setLoadState] = useState<LoadState>({
 			status: 'idle',
 			attempt: 0,
@@ -49,7 +50,42 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 
 		const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 		const hasRequestedRedeployRef = useRef(false);
-        const postLoadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+		const postLoadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+		// Inject design mode script when iframe loads
+		useEffect(() => {
+			if (loadState.status === 'loaded' && ref && 'current' in ref && ref.current) {
+				const iframe = ref.current;
+				console.log('[PreviewIframe] Attempting to inject design mode script', {
+					src,
+					iframeSrc: iframe.src,
+					currentOrigin: window.location.origin
+				});
+
+				try {
+					const doc = iframe.contentDocument;
+					console.log('[PreviewIframe] contentDocument access:', { hasDoc: !!doc });
+
+					if (doc && !doc.getElementById('vibesdk-design-mode-script')) {
+						const scriptContent = getDesignModeClientScript();
+						console.log('[PreviewIframe] Injecting script, length:', scriptContent.length);
+
+						const script = doc.createElement('script');
+						script.id = 'vibesdk-design-mode-script';
+						script.textContent = scriptContent;
+						doc.head.appendChild(script);
+
+						console.log('[PreviewIframe] Design mode script injected successfully');
+					} else if (doc) {
+						console.log('[PreviewIframe] Script already injected');
+					}
+				} catch (error) {
+					// Cross-origin restriction - this is expected for sandbox deployments
+					console.warn('[PreviewIframe] Cross-origin error - script must be injected server-side:', error);
+					console.log('[PreviewIframe] The design mode script needs to be deployed with the worker to work with this preview URL');
+				}
+			}
+		}, [loadState.status, ref, src]);
 		// ====================================================================
 		// Core Loading Logic
 		// ====================================================================
@@ -66,25 +102,25 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 					cache: 'no-cache',
 					signal: AbortSignal.timeout(8000),
 				});
-                console.log('Preview availability test response:', response, response.headers.forEach((value, key) => console.log("Header: ",key, value)));
-				
+				console.log('Preview availability test response:', response, response.headers.forEach((value, key) => console.log("Header: ", key, value)));
+
 				if (!response.ok) {
 					console.log('Preview not ready (status:', response.status, ')');
 					return null;
 				}
-				
+
 				// Read the custom header to determine preview type
 				// Header will only be present if origin validation passed on server
 				const previewType = response.headers.get('X-Preview-Type');
-				
-                if (previewType === 'sandbox-error') {
-                    console.log('Preview not ready (sandbox error)');
-                    return null;
-                } else if (previewType === 'sandbox' || previewType === 'dispatcher') {
+
+				if (previewType === 'sandbox-error') {
+					console.log('Preview not ready (sandbox error)');
+					return null;
+				} else if (previewType === 'sandbox' || previewType === 'dispatcher') {
 					console.log('Preview available, type:', previewType);
 					return previewType;
 				}
-				
+
 				// Fallback: If no header present (shouldn't happen with valid origin)
 				// but the response is OK, assume sandbox for backward compatibility
 				console.log('Preview available (type unknown, assuming sandbox)');
@@ -110,7 +146,7 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 			}
 
 			console.log('Requesting automatic preview redeployment');
-			
+
 			try {
 				webSocket.send(JSON.stringify({
 					type: 'preview',
@@ -131,7 +167,7 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 			}
 
 			console.log('Requesting screenshot capture');
-			
+
 			try {
 				webSocket.send(JSON.stringify({
 					type: 'capture_screenshot',
@@ -155,10 +191,10 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 				retryTimeoutRef.current = null;
 			}
 
-            if (postLoadTimeoutRef.current) {
-                clearTimeout(postLoadTimeoutRef.current);
-                postLoadTimeoutRef.current = null;
-            }
+			if (postLoadTimeoutRef.current) {
+				clearTimeout(postLoadTimeoutRef.current);
+				postLoadTimeoutRef.current = null;
+			}
 
 			// Check if we've exceeded max retries
 			if (attempt >= MAX_RETRIES) {
@@ -207,7 +243,7 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 				// Not available yet - retry with backoff
 				const delay = getRetryDelay(attempt);
 				const nextAttempt = attempt + 1;
-				
+
 				console.log(`Preview not ready. Retrying in ${Math.ceil(delay / 1000)}s (attempt ${nextAttempt}/${MAX_RETRIES})`);
 
 				// Auto-redeploy after 3 failed attempts
@@ -228,16 +264,16 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 		const forceReload = useCallback(() => {
 			console.log('Force reloading preview');
 			hasRequestedRedeployRef.current = false;
-			
+
 			if (retryTimeoutRef.current) {
 				clearTimeout(retryTimeoutRef.current);
 				retryTimeoutRef.current = null;
 			}
 
-            if (postLoadTimeoutRef.current) {
-                clearTimeout(postLoadTimeoutRef.current);
-                postLoadTimeoutRef.current = null;
-            }
+			if (postLoadTimeoutRef.current) {
+				clearTimeout(postLoadTimeoutRef.current);
+				postLoadTimeoutRef.current = null;
+			}
 
 			setLoadState({
 				status: 'idle',
@@ -262,16 +298,16 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 
 			console.log('Preview src changed, starting load:', src);
 			hasRequestedRedeployRef.current = false;
-			
+
 			if (retryTimeoutRef.current) {
 				clearTimeout(retryTimeoutRef.current);
 				retryTimeoutRef.current = null;
 			}
 
-            if (postLoadTimeoutRef.current) {
-                clearTimeout(postLoadTimeoutRef.current);
-                postLoadTimeoutRef.current = null;
-            }
+			if (postLoadTimeoutRef.current) {
+				clearTimeout(postLoadTimeoutRef.current);
+				postLoadTimeoutRef.current = null;
+			}
 
 			setLoadState({
 				status: 'idle',
@@ -336,7 +372,7 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 		if (loadState.status === 'loaded' && loadState.loadedSrc) {
 			return (
 				<iframe
-                    sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms allow-modals allow-orientation-lock	allow-popups allow-presentation"
+					sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms allow-modals allow-orientation-lock	allow-popups allow-presentation"
 					ref={ref}
 					src={loadState.loadedSrc}
 					className={className}
@@ -361,24 +397,24 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 
 			return (
 				<div className={`${className} relative flex flex-col items-center justify-center bg-bg-3 border border-text/10 rounded-lg`}>
-                    {loadState.status === 'postload' && loadState.loadedSrc && (
-                        <iframe
-                            sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms allow-modals allow-orientation-lock	allow-popups allow-presentation"
-                            ref={ref}
-                            src={loadState.loadedSrc}
-                            className="absolute inset-0 opacity-0 pointer-events-none"
-                            title={title}
-                            aria-hidden="true"
-                            onError={() => {
-                                console.error('Iframe failed to load');
-                                setLoadState(prev => ({
-                                    ...prev,
-                                    status: 'error',
-                                    errorMessage: 'Preview failed to render',
-                                }));
-                            }}
-                        />
-                    )}
+					{loadState.status === 'postload' && loadState.loadedSrc && (
+						<iframe
+							sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms allow-modals allow-orientation-lock	allow-popups allow-presentation"
+							ref={ref}
+							src={loadState.loadedSrc}
+							className="absolute inset-0 opacity-0 pointer-events-none"
+							title={title}
+							aria-hidden="true"
+							onError={() => {
+								console.error('Iframe failed to load');
+								setLoadState(prev => ({
+									...prev,
+									status: 'error',
+									errorMessage: 'Preview failed to render',
+								}));
+							}}
+						/>
+					)}
 					<div className="text-center p-8 max-w-md">
 						<RefreshCw className="size-8 text-accent animate-spin mx-auto mb-4" />
 						<h3 className="text-lg font-medium text-text-primary mb-2">

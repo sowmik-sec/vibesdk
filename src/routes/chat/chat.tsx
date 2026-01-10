@@ -33,8 +33,11 @@ import { mergeFiles } from '@/utils/file-helpers';
 import { ChatModals } from './components/chat-modals';
 import { MainContentPanel } from './components/main-content-panel';
 import { ChatInput } from './components/chat-input';
+import { SidebarModeTabs, type SidebarMode } from './components/sidebar-mode-tabs';
 import { useVault } from '@/hooks/use-vault';
 import { VaultUnlockModal } from '@/components/vault';
+import { useDesignMode } from '@/hooks/use-design-mode';
+import { DesignModePanel } from '@/components/design-mode/design-mode-panel';
 
 const isPhasicBlueprint = (blueprint?: BlueprintType | null): blueprint is PhasicBlueprint =>
 	!!blueprint && 'implementationRoadmap' in blueprint;
@@ -267,8 +270,35 @@ export default function Chat() {
 	const previewRef = useRef<HTMLIFrameElement>(null);
 	const messagesContainerRef = useRef<HTMLDivElement>(null);
 
+	// Sidebar mode state (Chat vs Design)
+	const [sidebarMode, setSidebarMode] = useState<SidebarMode>('chat');
+
 	const [newMessage, setNewMessage] = useState('');
 	const [showTooltip, setShowTooltip] = useState(false);
+
+	// Design mode hook
+	const designMode = useDesignMode({
+		websocket,
+		iframeRef: previewRef,
+		onGoToCode: (filePath, _lineNumber) => {
+			const file = files.find(f => f.filePath === filePath);
+			if (file) {
+				handleViewModeChange('editor');
+				handleFileClick(file);
+				setSidebarMode('chat');
+			}
+		},
+	});
+
+	// Sync design mode with sidebar mode
+	useEffect(() => {
+		console.log('[Chat] sidebarMode changed:', sidebarMode, 'previewRef:', previewRef.current);
+		if (sidebarMode === 'design') {
+			designMode.enableDesignMode();
+		} else {
+			designMode.disableDesignMode();
+		}
+	}, [sidebarMode, designMode.enableDesignMode, designMode.disableDesignMode]);
 
 	const { images, addImages, removeImage, clearImages, isProcessing } = useImageUpload({
 		onError: (error) => {
@@ -422,9 +452,9 @@ export default function Chat() {
 		return detectContentType(files);
 	}, [files]);
 
-    const hasDocumentation = useMemo(() => {
-        return Object.values(contentDetection.Contents).some(bundle => bundle.type === 'markdown');
-    }, [contentDetection]);
+	const hasDocumentation = useMemo(() => {
+		return Object.values(contentDetection.Contents).some(bundle => bundle.type === 'markdown');
+	}, [contentDetection]);
 
 	// Preview available based on projectType and content
 	const previewAvailable = useMemo(() => {
@@ -553,7 +583,7 @@ export default function Chat() {
 			setView('editor');
 		}
 	}, [isGeneratingBlueprint, view]);
-    
+
 	const isRunning = useMemo(() => {
 		return (
 			isBootstrapping || isGeneratingBlueprint // || codeGenState === 'active'
@@ -652,201 +682,230 @@ export default function Chat() {
 					layout="position"
 					className="flex-1 shrink-0 flex flex-col basis-0 max-w-lg relative z-10 h-full min-h-0"
 				>
-					<div 
-					className={clsx(
-						'flex-1 overflow-y-auto min-h-0 chat-messages-scroll',
-						isDebugging && 'animate-debug-pulse'
-					)} 
-					ref={messagesContainerRef}
-				>
-						<div className="pt-5 px-4 pb-4 text-sm flex flex-col gap-5">
-							{appLoading ? (
-								<div className="flex items-center gap-2 text-text-tertiary">
-									<LoaderCircle className="size-4 animate-spin" />
-									Loading app...
-								</div>
-							) : (
-								<>
-									{(appTitle || chatId) && (
-								<div className="flex items-center justify-between mb-2">
-									<div className="text-lg font-semibold">{appTitle}</div>
-								</div>
-							)}
-									<UserMessage
-										message={query ?? displayQuery}
-									/>
-								</>
-							)}
+					{/* Sidebar Mode Tabs - Chat/Design */}
+					<SidebarModeTabs
+						mode={sidebarMode}
+						onModeChange={setSidebarMode}
+						disabled={!previewUrl}
+					/>
 
-							{mainMessage && (
-							<div className="relative">
-								<AIMessage
-									message={mainMessage.content}
-									isThinking={mainMessage.ui?.isThinking}
-									toolEvents={mainMessage.ui?.toolEvents}
-								/>
-								{chatId && (
-									<div className="absolute right-1 top-1">
-										<DropdownMenu>
-											<DropdownMenuTrigger asChild>
-												<Button
-													variant="ghost"
-													size="icon"
-													className="hover:bg-bg-3/80 cursor-pointer"
-												>
-													<MoreHorizontal className="h-4 w-4" />
-													<span className="sr-only">Chat actions</span>
-												</Button>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent align="end" className="w-56">
-												<DropdownMenuItem
-														onClick={(e) => {
-															e.preventDefault();
-															setIsResetDialogOpen(true);
-														}}
-												>
-													<RotateCcw className="h-4 w-4 mr-2" />
-													Reset conversation
-												</DropdownMenuItem>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									</div>
-								)}
-							</div>
-						)}
-
-							{otherMessages
-								.filter(message => message.role === 'assistant' && message.ui?.isThinking)
-								.map((message) => (
-									<div key={message.conversationId} className="mb-4">
-										<AIMessage
-											message={message.content}
-											isThinking={true}
-											toolEvents={message.ui?.toolEvents}
-										/>
-									</div>
-								))}
-
-							{isThinking && !otherMessages.some(m => m.ui?.isThinking) && (
-								<div className="mb-4">
-									<AIMessage
-										message="Planning next phase..."
-										isThinking={true}
-									/>
-								</div>
-							)}
-
-							{/* Only show PhaseTimeline for phasic mode */}
-							{behaviorType !== 'agentic' && (
-								<PhaseTimeline
-									projectStages={projectStages}
-									phaseTimeline={phaseTimeline}
-									files={files}
-									view={view}
-									activeFile={activeFile}
-									onFileClick={handleFileClick}
-									isThinkingNext={isThinking}
-									isPreviewDeploying={isPreviewDeploying}
-									progress={progress}
-									total={total}
-									parentScrollRef={messagesContainerRef}
-									onViewChange={(viewMode) => {
-										setView(viewMode);
-										hasSwitchedFile.current = true;
-									}}
-									chatId={chatId}
-									isDeploying={isDeploying}
-									handleDeployToCloudflare={handleDeployToCloudflare}
-									runtimeErrorCount={runtimeErrorCount}
-									staticIssueCount={staticIssueCount}
-									isDebugging={isDebugging}
-									isGenerating={isGenerating}
-									isThinking={isThinking}
-								/>
-							)}
-
-							{/* Deployment and Generation Controls - Only for phasic mode */}
-							{chatId && behaviorType !== 'agentic' && (
-								<motion.div
-									ref={deploymentControlsRef}
-									initial={{ opacity: 0, y: 20 }}
-									animate={{ opacity: 1, y: 0 }}
-									transition={{ duration: 0.3, delay: 0.2 }}
-									className="px-4 mb-6"
-								>
-									<DeploymentControls
-										isPhase1Complete={isPhase1Complete}
-										isDeploying={isDeploying}
-										deploymentUrl={cloudflareDeploymentUrl}
-										instanceId={chatId || ''}
-										isRedeployReady={isRedeployReady}
-										deploymentError={deploymentError}
-										appId={app?.id || chatId}
-										appVisibility={app?.visibility}
-										isGenerating={
-											isGenerating ||
-											isGeneratingBlueprint
-										}
-										isPaused={isGenerationPaused}
-										onDeploy={handleDeployToCloudflare}
-										onStopGeneration={handleStopGeneration}
-										onResumeGeneration={
-											handleResumeGeneration
-										}
-										onVisibilityUpdate={(newVisibility) => {
-											// Update app state if needed
-											if (app) {
-												app.visibility = newVisibility;
-											}
-										}}
-									/>
-								</motion.div>
-							)}
-
-							{otherMessages
-								.filter(message => !message.ui?.isThinking)
-								.map((message) => {
-									if (message.role === 'assistant') {
-										return (
-											<AIMessage
-												key={message.conversationId}
-												message={message.content}
-												isThinking={message.ui?.isThinking}
-												toolEvents={message.ui?.toolEvents}
-											/>
-										);
-									}
-									return (
-										<UserMessage
-											key={message.conversationId}
-											message={message.content}
-										/>
-									);
-								})}
-
+					{/* Conditional content based on sidebar mode */}
+					{sidebarMode === 'design' ? (
+						<div className="flex-1 overflow-y-auto min-h-0">
+							<DesignModePanel
+								selectedElement={designMode.selectedElement}
+								onStyleChange={(p, v) => designMode.applyStyle(p, v)}
+								onStylePreview={(p, v) => designMode.previewStyle(p, v)}
+								onClearPreview={designMode.clearPreview}
+								onAIPrompt={designMode.sendAIPrompt}
+								onGoToCode={designMode.goToCode}
+								onUndo={designMode.undo}
+								onRedo={designMode.redo}
+								canUndo={designMode.canUndo}
+								canRedo={designMode.canRedo}
+								onClose={() => setSidebarMode('chat')}
+								isSyncing={designMode.isSyncing}
+							/>
 						</div>
-					</div>
+					) : (
+						<>
+							<div
+								className={clsx(
+									'flex-1 overflow-y-auto min-h-0 chat-messages-scroll',
+									isDebugging && 'animate-debug-pulse'
+								)}
+								ref={messagesContainerRef}
+							>
+								<div className="pt-5 px-4 pb-4 text-sm flex flex-col gap-5">
+									{appLoading ? (
+										<div className="flex items-center gap-2 text-text-tertiary">
+											<LoaderCircle className="size-4 animate-spin" />
+											Loading app...
+										</div>
+									) : (
+										<>
+											{(appTitle || chatId) && (
+												<div className="flex items-center justify-between mb-2">
+													<div className="text-lg font-semibold">{appTitle}</div>
+												</div>
+											)}
+											<UserMessage
+												message={query ?? displayQuery}
+											/>
+										</>
+									)}
+
+									{mainMessage && (
+										<div className="relative">
+											<AIMessage
+												message={mainMessage.content}
+												isThinking={mainMessage.ui?.isThinking}
+												toolEvents={mainMessage.ui?.toolEvents}
+											/>
+											{chatId && (
+												<div className="absolute right-1 top-1">
+													<DropdownMenu>
+														<DropdownMenuTrigger asChild>
+															<Button
+																variant="ghost"
+																size="icon"
+																className="hover:bg-bg-3/80 cursor-pointer"
+															>
+																<MoreHorizontal className="h-4 w-4" />
+																<span className="sr-only">Chat actions</span>
+															</Button>
+														</DropdownMenuTrigger>
+														<DropdownMenuContent align="end" className="w-56">
+															<DropdownMenuItem
+																onClick={(e) => {
+																	e.preventDefault();
+																	setIsResetDialogOpen(true);
+																}}
+															>
+																<RotateCcw className="h-4 w-4 mr-2" />
+																Reset conversation
+															</DropdownMenuItem>
+														</DropdownMenuContent>
+													</DropdownMenu>
+												</div>
+											)}
+										</div>
+									)}
+
+									{otherMessages
+										.filter(message => message.role === 'assistant' && message.ui?.isThinking)
+										.map((message) => (
+											<div key={message.conversationId} className="mb-4">
+												<AIMessage
+													message={message.content}
+													isThinking={true}
+													toolEvents={message.ui?.toolEvents}
+												/>
+											</div>
+										))}
+
+									{isThinking && !otherMessages.some(m => m.ui?.isThinking) && (
+										<div className="mb-4">
+											<AIMessage
+												message="Planning next phase..."
+												isThinking={true}
+											/>
+										</div>
+									)}
+
+									{/* Only show PhaseTimeline for phasic mode */}
+									{behaviorType !== 'agentic' && (
+										<PhaseTimeline
+											projectStages={projectStages}
+											phaseTimeline={phaseTimeline}
+											files={files}
+											view={view}
+											activeFile={activeFile}
+											onFileClick={handleFileClick}
+											isThinkingNext={isThinking}
+											isPreviewDeploying={isPreviewDeploying}
+											progress={progress}
+											total={total}
+											parentScrollRef={messagesContainerRef}
+											onViewChange={(viewMode) => {
+												setView(viewMode);
+												hasSwitchedFile.current = true;
+											}}
+											chatId={chatId}
+											isDeploying={isDeploying}
+											handleDeployToCloudflare={handleDeployToCloudflare}
+											runtimeErrorCount={runtimeErrorCount}
+											staticIssueCount={staticIssueCount}
+											isDebugging={isDebugging}
+											isGenerating={isGenerating}
+											isThinking={isThinking}
+										/>
+									)}
+
+									{/* Deployment and Generation Controls - Only for phasic mode */}
+									{chatId && behaviorType !== 'agentic' && (
+										<motion.div
+											ref={deploymentControlsRef}
+											initial={{ opacity: 0, y: 20 }}
+											animate={{ opacity: 1, y: 0 }}
+											transition={{ duration: 0.3, delay: 0.2 }}
+											className="px-4 mb-6"
+										>
+											<DeploymentControls
+												isPhase1Complete={isPhase1Complete}
+												isDeploying={isDeploying}
+												deploymentUrl={cloudflareDeploymentUrl}
+												instanceId={chatId || ''}
+												isRedeployReady={isRedeployReady}
+												deploymentError={deploymentError}
+												appId={app?.id || chatId}
+												appVisibility={app?.visibility}
+												isGenerating={
+													isGenerating ||
+													isGeneratingBlueprint
+												}
+												isPaused={isGenerationPaused}
+												onDeploy={handleDeployToCloudflare}
+												onStopGeneration={handleStopGeneration}
+												onResumeGeneration={
+													handleResumeGeneration
+												}
+												onVisibilityUpdate={(newVisibility) => {
+													// Update app state if needed
+													if (app) {
+														app.visibility = newVisibility;
+													}
+												}}
+											/>
+										</motion.div>
+									)}
+
+									{otherMessages
+										.filter(message => !message.ui?.isThinking)
+										.map((message) => {
+											if (message.role === 'assistant') {
+												return (
+													<AIMessage
+														key={message.conversationId}
+														message={message.content}
+														isThinking={message.ui?.isThinking}
+														toolEvents={message.ui?.toolEvents}
+													/>
+												);
+											}
+											return (
+												<UserMessage
+													key={message.conversationId}
+													message={message.content}
+												/>
+											);
+										})}
+
+								</div>
+							</div>
 
 
-				<ChatInput
-					newMessage={newMessage}
-					onMessageChange={setNewMessage}
-					onSubmit={onNewMessage}
-					images={images}
-					onAddImages={addImages}
-					onRemoveImage={removeImage}
-					isProcessing={isProcessing}
-					isChatDragging={isChatDragging}
-					chatDragHandlers={chatDragHandlers}
-					isChatDisabled={isChatDisabled}
-					isRunning={isRunning}
-					isGenerating={isGenerating}
-					isGeneratingBlueprint={isGeneratingBlueprint}
-					isDebugging={isDebugging}
-					websocket={websocket}
-					chatFormRef={chatFormRef}
-					imageInputRef={imageInputRef}
-				/>
+							<ChatInput
+								newMessage={newMessage}
+								onMessageChange={setNewMessage}
+								onSubmit={onNewMessage}
+								images={images}
+								onAddImages={addImages}
+								onRemoveImage={removeImage}
+								isProcessing={isProcessing}
+								isChatDragging={isChatDragging}
+								chatDragHandlers={chatDragHandlers}
+								isChatDisabled={isChatDisabled}
+								isRunning={isRunning}
+								isGenerating={isGenerating}
+								isGeneratingBlueprint={isGeneratingBlueprint}
+								isDebugging={isDebugging}
+								websocket={websocket}
+								chatFormRef={chatFormRef}
+								imageInputRef={imageInputRef}
+							/>
+						</>
+					)}
 				</motion.div>
 
 				<AnimatePresence mode="wait">
