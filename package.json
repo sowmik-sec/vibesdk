@@ -12,6 +12,7 @@
 		"lint": "eslint .",
 		"preview": "npm run build && vite preview",
 		"deploy": "bun --env-file .prod.vars scripts/deploy.ts",
+		"rebuild:sandbox": "bash scripts/rebuild-sandbox.sh",
 		"cli": "tsx --tsconfig tsconfig.app.json cli/index.ts",
 		"tui": "tsx --tsconfig tsconfig.app.json cli/tui.tsx",
 		"cf-typegen": "wrangler types --include-runtime false",

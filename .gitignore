@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 dist
+!agent-extraction/dist
  dist-ssr
  .tmp
 *.tsbuildinfo
