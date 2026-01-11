@@ -627,11 +627,37 @@ export class SandboxSdkClient extends BaseSandboxService {
         return false;
     }
 
+    private async checkProcessExists(instanceId: string, commandPattern: string): Promise<string | null> {
+        try {
+            const session = await this.getInstanceSession(instanceId);
+            // using pgrep -f to match against full command line
+            const result = await session.exec(`pgrep -f "${commandPattern}"`);
+
+            if (result.exitCode === 0 && result.stdout.trim()) {
+                const pids = result.stdout.trim().split('\n');
+                // Return the first found PID
+                return pids[0].trim();
+            }
+        } catch (error) {
+            this.logger.warn('Failed to check for existing process', { error, commandPattern });
+        }
+        return null;
+    }
+
     private async startDevServer(instanceId: string, initCommand: string, port: number): Promise<string> {
         try {
             // Use session-based process management
             // Note: Environment variables should already be set via setLocalEnvVars
             const session = await this.getOrCreateSession(`${instanceId}-dev`, `/workspace/${instanceId}`);
+
+            // Check if process is already running
+            const cmdPattern = `monitor-cli process start --instance-id ${instanceId}`;
+            const existingProcess = await this.checkProcessExists(instanceId, cmdPattern);
+
+            if (existingProcess) {
+                this.logger.info('Development server already running', { instanceId, processId: existingProcess });
+                return existingProcess;
+            }
 
             // Start process with env vars inline for those not in .dev.vars
             const process = await session.startProcess(
@@ -797,6 +823,20 @@ export class SandboxSdkClient extends BaseSandboxService {
     private async startCloudflaredTunnel(instanceId: string, port: number): Promise<string> {
         try {
             const session = await this.getOrCreateSession(`${instanceId}-tunnel`, `/workspace/${instanceId}`);
+
+            // Check if tunnel is already running and kill it to get a fresh URL
+            const existingProcess = await this.checkProcessExists(instanceId, 'cloudflared tunnel');
+            if (existingProcess) {
+                this.logger.info('Killing existing cloudflared tunnel', { instanceId, pid: existingProcess });
+                try {
+                    await session.exec(`kill ${existingProcess} 2>/dev/null || true`);
+                    // Give it a moment to clean up
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                } catch (killError) {
+                    this.logger.warn('Failed to kill existing tunnel', { error: killError });
+                }
+            }
+
             const process = await session.startProcess(
                 `cloudflared tunnel --url http://localhost:${port}`
             );

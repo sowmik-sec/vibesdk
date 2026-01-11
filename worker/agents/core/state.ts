@@ -1,4 +1,5 @@
-import type { PhasicBlueprint, AgenticBlueprint, PhaseConceptType ,
+import type {
+    PhasicBlueprint, AgenticBlueprint, PhaseConceptType,
     FileOutputType,
     Blueprint,
 } from '../schemas';
@@ -33,7 +34,7 @@ export const MAX_PHASES = 10;
 export interface BaseProjectState {
     behaviorType: BehaviorType;
     projectType: ProjectType;
-    
+
     // Identity
     projectName: string;
     query: string;
@@ -43,24 +44,26 @@ export interface BaseProjectState {
     blueprint: Blueprint;
 
     templateName: string | 'custom';
-    
+
     // Inference context
     readonly metadata: InferenceMetadata;
-    
+
     // Generation control
     shouldBeGenerating: boolean;
-    
+
     // Common file storage
     generatedFilesMap: Record<string, FileState>;
-    
+
     // Common infrastructure
     sandboxInstanceId?: string;
+    cachedPreviewUrl?: string;  // Persist preview URL across reconnections for fast restore
+    cachedTunnelUrl?: string;   // Persist tunnel URL for external access
     fileServingToken?: FileServingToken;
     commandsHistory?: string[];
     lastPackageJson?: string;
     pendingUserInputs: string[];
     projectUpdatesAccumulator: string[];
-    
+
     // Deep debug
     lastDeepDebugTranscript: string | null;
 
@@ -73,7 +76,7 @@ export interface PhasicState extends BaseProjectState {
     behaviorType: 'phasic';
     blueprint: PhasicBlueprint;
     generatedPhases: PhaseState[];
-    
+
     phasesCounter: number;
     currentDevState: CurrentDevState;
     reviewCycles?: number;

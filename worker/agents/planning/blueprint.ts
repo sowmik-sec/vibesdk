@@ -287,7 +287,7 @@ export async function generateBlueprint(
 ): Promise<Blueprint> {
     const { env, inferenceContext, query, language, frameworks, templateDetails, templateMetaInfo, images, stream, projectType } = args;
     const isAgentic = !templateDetails || !templateMetaInfo;
-    
+
     try {
         logger.info(`Generating ${isAgentic ? 'agentic' : 'phasic'} blueprint`, { query, queryLength: query.length, imagesCount: images?.length || 0 });
         if (templateDetails) logger.info(`Using template: ${templateDetails.name}`);
@@ -295,7 +295,7 @@ export async function generateBlueprint(
         // Select prompt and schema based on behavior type
         const systemPromptTemplate = isAgentic ? SIMPLE_SYSTEM_PROMPT : PHASIC_SYSTEM_PROMPT;
         const schema = isAgentic ? AgenticBlueprintSchema : PhasicBlueprintSchema;
-        
+
         // Build system prompt with template context (if provided)
         let systemPrompt = systemPromptTemplate;
         if (templateDetails) {
@@ -310,7 +310,7 @@ export async function generateBlueprint(
         if (projectGuidance) {
             systemPrompt = `${systemPrompt}\n\n${projectGuidance}`;
         }
-        
+
         const systemPromptMessage = createSystemMessage(generalSystemPromptBuilder(systemPrompt, {
             query,
             templateDetails,
@@ -324,9 +324,9 @@ export async function generateBlueprint(
         const userMessage = images && images.length > 0
             ? createMultiModalUserMessage(
                 `CLIENT REQUEST: "${query}"`,
-                await imagesToBase64(env, images), 
+                await imagesToBase64(env, images),
                 'high'
-              )
+            )
             : createUserMessage(`CLIENT REQUEST: "${query}"`);
 
         const messages = [
@@ -346,7 +346,15 @@ export async function generateBlueprint(
         // Filter out PDF files from phasic blueprints
         if (results && !isAgentic) {
             const phasicResults = results as PhasicBlueprint;
-            phasicResults.initialPhase.files = phasicResults.initialPhase.files.filter(f => !f.path.endsWith('.pdf'));
+            // Guard against incomplete AI response where initialPhase or files may be undefined
+            if (phasicResults.initialPhase && phasicResults.initialPhase.files) {
+                phasicResults.initialPhase.files = phasicResults.initialPhase.files.filter(f => !f.path.endsWith('.pdf'));
+            } else {
+                logger.warn('Blueprint generation returned incomplete initialPhase', {
+                    hasInitialPhase: !!phasicResults.initialPhase,
+                    hasFiles: !!(phasicResults.initialPhase?.files)
+                });
+            }
         }
 
         return results as PhasicBlueprint | AgenticBlueprint;

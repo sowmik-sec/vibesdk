@@ -526,6 +526,17 @@ export class PhasicCodingBehavior extends BaseCodingBehavior<PhasicState> implem
             },
             this.getOperationOptions()
         )
+
+        // Guard against incomplete AI responses
+        if (!result || !result.files) {
+            this.logger.warn("Phase generation returned incomplete result", { result });
+            this.broadcast(WebSocketMessageResponses.PHASE_GENERATED, {
+                message: `Phase generation returned incomplete result, retrying...`,
+                phase: undefined
+            });
+            return undefined;
+        }
+
         // Execute install commands if any
         if (result.installCommands && result.installCommands.length > 0) {
             this.executeCommands(result.installCommands);
