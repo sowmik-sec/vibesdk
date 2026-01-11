@@ -661,7 +661,7 @@ export class SandboxSdkClient extends BaseSandboxService {
 
             // Start process with env vars inline for those not in .dev.vars
             const process = await session.startProcess(
-                `VITE_LOGGER_TYPE=json PORT=${port} monitor-cli process start --instance-id ${instanceId} --port ${port} -- ${initCommand}`
+                `VITE_LOGGER_TYPE=json PORT=${port} monitor-cli process start --instance-id ${instanceId} --port ${port} -- npm run dev -- --host`
             );
             this.logger.info('Development server started', { instanceId, processId: process.id });
 
@@ -976,11 +976,18 @@ export class SandboxSdkClient extends BaseSandboxService {
             }
 
             this.logger.info('Installing dependencies', { instanceId });
+            const installCmd = `cd /workspace/${instanceId} && (bun install --frozen-lockfile || bun install)`;
             const [installResult, tunnelURL] = await Promise.all([
-                this.executeCommand(instanceId, `bun install --frozen-lockfile 2>/dev/null || bun install`, { timeout: 60000 }),
+                this.executeCommand(instanceId, installCmd, { timeout: 120000 }),
                 tunnelUrlPromise
             ]);
-            this.logger.info('Dependencies installed', { instanceId, tunnelURL });
+            this.logger.info('Dependencies installed', {
+                instanceId,
+                tunnelURL,
+                exitCode: installResult.exitCode,
+                stdout: installResult.stdout,
+                stderr: installResult.stderr
+            });
 
             if (installResult.exitCode === 0) {
                 // Try to start development server in background
