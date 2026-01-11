@@ -1,26 +1,42 @@
-# Note: cloudflare/sandbox only has amd64 images.
-FROM --platform=linux/amd64 docker.io/cloudflare/sandbox:0.5.6
+# Use Node.js as base for compatibility with Cloudflare plugins (WebSockets)
+# while retaining ARM64 support
+FROM node:20-bookworm-slim
 
-# Install basic tools
+# Install system dependencies
+# procps: required for process monitoring
+# python3: required for some node_gyp builds
+# git: required for some dependencies
 RUN apt-get update && apt-get install -y \
-    git \
-    ca-certificates \
-    curl \
+    python3 \
     procps \
-    net-tools \
+    git \
+    curl \
+    fuse \
+    libfuse2 \
+    unzip \
+    zip \
+    jq \
+    file \
+    findutils \
     && rm -rf /var/lib/apt/lists/*
+
+# Reset entrypoint to avoid node image defaults
+ENTRYPOINT []
+
+# Install Bun manually for fast package management
+ENV BUN_INSTALL=/usr/local
+RUN curl -fsSL https://bun.sh/install | bash
 
 # Configure Bun for optimal caching
 ENV BUN_INSTALL_CACHE_DIR=/workspace/.bun-cache
+ENV CLI_DATA_DIR=/workspace/data
 RUN mkdir -p /workspace/.bun-cache && chmod 777 /workspace/.bun-cache
 
-# Pre-install common packages to warm cache (reduces per-project install time significantly)
-# These are the most frequently used packages in generated apps
+# Pre-install common packages to warm cache
 WORKDIR /workspace/warm-cache
 RUN echo '{"dependencies":{"react":"^19","react-dom":"^19","vite":"^6","@vitejs/plugin-react":"^4","tailwindcss":"^4","postcss":"^8","autoprefixer":"^10","typescript":"^5","@types/react":"^19","@types/react-dom":"^19","lucide-react":"latest","clsx":"^2","tailwind-merge":"^2"}}' > package.json && \
     bun install --no-save && \
     rm -rf /workspace/warm-cache
-
 
 # Install cloudflared
 ARG TARGETARCH
@@ -31,19 +47,26 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then ARCH="amd64"; \
     dpkg -i cloudflared.deb && \
     rm cloudflared.deb
 
-# Setup workspace
+# Setup Agent (Extracted from cloudflare/sandbox)
+WORKDIR /container-server
+# Copy the extracted agent files
+COPY agent-extraction/dist ./dist
+COPY agent-extraction/startup.sh ./agent-startup.sh
+RUN chmod +x ./agent-startup.sh
+
+# Setup workspace (User tools)
 COPY container/ /workspace/container/
 WORKDIR /workspace/container
-RUN bun install && bun run build
+RUN bun install && bun run build && chmod +x startup.sh
 
 # Setup CLI alias
 RUN ln -sf /workspace/container/cli-tools.ts /usr/local/bin/monitor-cli
 
-# Expose port
+# Expose port (Agent listens on 3000)
 EXPOSE 3000
 
 # Set working directory for app
 WORKDIR /container-server
 
-# Start container
-CMD ["./startup.sh"]
+# Start container (Run user startup script which should invoke agent)
+CMD ["/workspace/container/startup.sh"]
