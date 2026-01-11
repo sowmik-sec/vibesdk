@@ -576,6 +576,7 @@ export type DesignModeStyleUpdateRequest = {
 	type: 'design_mode_style_update';
 	selector: string;
 	filePath?: string;
+	textContent?: string;
 	changes: DesignModeStyleChange[];
 };
 

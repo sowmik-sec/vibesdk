@@ -32,6 +32,45 @@ interface CodeLocation {
 }
 
 // ============================================================================
+// Path Normalization Helper
+// ============================================================================
+
+/**
+ * Normalize file paths from React Fiber debug sources to sandbox-compatible paths.
+ * React Fiber paths look like: /workspace/i-xxx-uuid/src/components/Button.tsx
+ * Sandbox expects relative paths like: src/components/Button.tsx
+ */
+function normalizeFilePath(filePath: string): string {
+    if (!filePath) return filePath;
+
+    // Remove container workspace prefix: /workspace/i-xxx/src/... → src/...
+    // The instance ID pattern is: i-[uuid]
+    const workspaceMatch = filePath.match(/\/workspace\/i-[a-f0-9-]+\/(.+)/);
+    if (workspaceMatch) {
+        return workspaceMatch[1];
+    }
+
+    // Try more general workspace pattern
+    const generalWorkspaceMatch = filePath.match(/\/workspace\/[^\/]+\/(.+)/);
+    if (generalWorkspaceMatch) {
+        return generalWorkspaceMatch[1];
+    }
+
+    // Also handle paths like /app/src/... or just /src/...
+    if (filePath.match(/^\/app\//)) {
+        return filePath.substring(5); // Remove /app/
+    }
+
+    // Remove leading slash if it's already a src path
+    if (filePath.startsWith('/src/')) {
+        return filePath.substring(1);
+    }
+
+    // Already relative or unrecognized format
+    return filePath;
+}
+
+// ============================================================================
 // Style Update Handler
 // ============================================================================
 
@@ -45,17 +84,25 @@ export async function handleDesignModeStyleUpdate(
     request: DesignModeStyleUpdateRequest,
     logger: StructuredLogger
 ): Promise<void> {
-    const { selector, filePath, changes } = request;
+    const { selector, filePath, changes, textContent } = request;
 
     logger.info('Design mode style update', {
         selector,
         filePath,
         changesCount: changes.length,
+        hasText: !!textContent
     });
 
     try {
         // If we don't have a file path, we need to find it
-        const targetFilePath = filePath || await findFileForSelector(agent, selector, logger);
+        // Normalize the path to convert container paths (/workspace/i-xxx/...) to relative paths (src/...)
+        const rawFilePath = filePath || await findFileForSelector(agent, selector, logger, textContent);
+        const targetFilePath = rawFilePath ? normalizeFilePath(rawFilePath) : null;
+
+        logger.info('Design mode: normalized file path', {
+            rawFilePath,
+            targetFilePath,
+        });
 
         if (!targetFilePath) {
             sendStyleUpdateResponse(connection, {
@@ -119,42 +166,82 @@ function sendStyleUpdateResponse(
 /**
  * Find the source file that contains the element with the given selector
  */
+/**
+ * Find the source file that contains the element with the given selector
+ */
 async function findFileForSelector(
-    _agent: ICodingAgent,
+    agent: ICodingAgent,
     selector: string,
-    logger: StructuredLogger
+    logger: StructuredLogger,
+    textContent?: string
 ): Promise<string | null> {
-    // This is a simplified implementation
-    // In a real implementation, we would:
-    // 1. Look for data-* attributes that indicate source location
-    // 2. Search through project files for matching JSX patterns
-    // 3. Use React DevTools protocol if available
+    logger.debug('Searching for file containing selector', { selector, hasText: !!textContent });
 
-    logger.debug('Searching for file containing selector', { selector });
-
-    // For now, we'll search common component directories
-    // This would need to be expanded based on project structure
-    const searchPaths = [
-        'src/components',
-        'src/app',
-        'src/pages',
-        'src/routes',
-        'app',
-        'components',
-    ];
-
-    // Extract tag name or class from selector for searching
-    const tagMatch = selector.match(/^(\w+)/);
-    const classMatch = selector.match(/\.([a-zA-Z][\w-]*)/);
-    const searchTerm = classMatch?.[1] || tagMatch?.[1] || null;
-
-    if (!searchTerm) {
-        return null;
+    // 0. Try to find by Text Content (High Confidence for Labels/Buttons)
+    if (textContent && textContent.length > 5 && textContent.length < 50) {
+        // Clean text for grep (escape quotes)
+        const cleanText = textContent.replace(/['"]/g, '.');
+        try {
+            // grep for text between tags or in props
+            const cmd = `grep -l -r "${cleanText}" src app components`;
+            const result = await agent.execCommands([cmd], false);
+            if (result.results?.[0]?.exitCode === 0 && result.results?.[0]?.output) {
+                const files = result.results[0].output.trim().split('\n');
+                const validFile = files.find((f: string) => f.endsWith('.tsx') || f.endsWith('.jsx'));
+                if (validFile) {
+                    logger.info('Found file by Text Content', { text: textContent, file: validFile });
+                    return validFile;
+                }
+            }
+        } catch (e) {
+            logger.warn('Failed to search by Text', { error: e });
+        }
     }
 
-    // Search for files containing the search term
-    // This is a placeholder - actual implementation would use project file system
-    logger.debug('Would search for', { searchTerm, searchPaths });
+    // 1. Try to find by unique ID if present
+    const idMatch = selector.match(/#([a-zA-Z0-9_-]+)/);
+    if (idMatch) {
+        const id = idMatch[1];
+        try {
+            // Search for id="value" or id='value'
+            const cmd = `grep -l -r "id=['\\"]${id}['\\"]" src app components`;
+            const result = await agent.execCommands([cmd], false);
+            if (result.results?.[0]?.exitCode === 0 && result.results?.[0]?.output) {
+                const file = result.results[0].output.trim().split('\n')[0];
+                logger.info('Found file by ID', { id, file });
+                return file;
+            }
+        } catch (e) {
+            logger.warn('Failed to search by ID', { error: e });
+        }
+    }
+
+    // 2. Try to find by unique class name
+    // Selector format: .className or tag.className
+    const classMatches = selector.match(/\.([a-zA-Z0-9_-]+)/g);
+    if (classMatches && classMatches.length > 0) {
+        // Use the last specific class (often the most unique)
+        const className = classMatches[classMatches.length - 1].substring(1);
+        // Skip common generic classes
+        if (!['flex', 'grid', 'bloack', 'block', 'hidden', 'container', 'wrapper'].includes(className)) {
+            try {
+                // Search for className containing the specific class
+                const cmd = `grep -l -r "${className}" src app components`;
+                const result = await agent.execCommands([cmd], false);
+                if (result.results?.[0]?.exitCode === 0 && result.results?.[0]?.output) {
+                    // Filter for tsx/jsx files
+                    const files = result.results[0].output.trim().split('\n');
+                    const validFile = files.find((f: string) => f.endsWith('.tsx') || f.endsWith('.jsx'));
+                    if (validFile) {
+                        logger.info('Found file by Class', { className, file: validFile });
+                        return validFile;
+                    }
+                }
+            } catch (e) {
+                logger.warn('Failed to search by Class', { error: e });
+            }
+        }
+    }
 
     return null;
 }
@@ -181,7 +268,8 @@ function generateStyleModifications(changes: DesignModeStyleChange[]): string[] 
             // Default to Tailwind class or inline style based on property
             modifications.push(
                 `Update styling for ${change.property} from "${change.oldValue}" to "${change.newValue}". ` +
-                `Prefer Tailwind classes if applicable, otherwise use inline styles.`
+                `Use Tailwind classes (including arbitrary values like text-[${change.newValue}]) if applicable. ` +
+                `If Tailwind cannot express this, use inline styles.`
             );
         }
     }
@@ -211,9 +299,12 @@ async function applyStyleChanges(
         ...modifications.map((mod, i) => `${i + 1}. ${mod}`),
         '',
         'Important:',
+        '- You MUST apply the requested changes.',
+        '- Use Tailwind arbitrary values (e.g. text-[20px], p-[15px]) if standard classes don\'t match.',
+        '- Fallback to inline styles (style={{ prop: "value" }}) ONLY if Tailwind cannot express the style.',
+        '- Do NOT skip changes if you can\'t find a standard class.',
         '- Maintain existing classes and styles that are not being modified',
-        '- Use Tailwind utility classes when possible',
-        '- If the exact element cannot be found, look for the closest matching element',
+        '- If the exact element cannot be found, look for the closest matching element based on tag and context',
         '- Do not modify any functionality, only styling',
     ];
 
@@ -264,7 +355,9 @@ export async function handleDesignModeAIPrompt(
     });
 
     try {
-        const targetFilePath = filePath || await findFileForSelector(agent, selector, logger);
+        // Normalize the path to convert container paths to relative paths
+        const rawFilePath = filePath || await findFileForSelector(agent, selector, logger);
+        const targetFilePath = rawFilePath ? normalizeFilePath(rawFilePath) : null;
 
         if (!targetFilePath) {
             connection.send(JSON.stringify({
@@ -346,7 +439,9 @@ export async function handleDesignModeTextUpdate(
     });
 
     try {
-        const targetFilePath = filePath || await findFileForSelector(agent, selector, logger);
+        // Normalize the path to convert container paths to relative paths
+        const rawFilePath = filePath || await findFileForSelector(agent, selector, logger);
+        const targetFilePath = rawFilePath ? normalizeFilePath(rawFilePath) : null;
 
         if (!targetFilePath) {
             connection.send(JSON.stringify({
@@ -454,15 +549,16 @@ async function findCodeLocation(
     filePath: string | undefined,
     logger: StructuredLogger
 ): Promise<CodeLocation | null> {
-    // If we have a file path hint, use it
+    // If we have a file path hint, use it (after normalization)
     if (filePath) {
+        const normalizedPath = normalizeFilePath(filePath);
         // Try to find the element within this file
         // This would need access to the file system to search for the selector
-        logger.debug('Would search in file', { filePath, selector });
+        logger.debug('Would search in file', { filePath: normalizedPath, selector });
 
         // For now, return a placeholder - actual implementation would parse the file
         return {
-            filePath,
+            filePath: normalizedPath,
             lineNumber: 1, // Would be calculated from actual search
         };
     }

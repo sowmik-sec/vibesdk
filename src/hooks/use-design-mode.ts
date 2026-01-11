@@ -257,11 +257,32 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
             websocketReadyState: websocket?.readyState
         });
 
-        if (!selectedElement || !websocket) {
-            console.warn('[useDesignMode] applyStyles: Missing element or websocket!', {
-                hasElement: !!selectedElement,
-                hasWebsocket: !!websocket
-            });
+        if (!selectedElement) {
+            console.warn('[useDesignMode] applyStyles: No selected element!');
+            return;
+        }
+
+        // IMMEDIATELY apply visual preview so user sees the change
+        const previewStylesForIframe: Record<string, string> = {};
+        changes.forEach(({ property, value }) => {
+            previewStylesForIframe[property] = value;
+        });
+
+        console.log('[useDesignMode] Applying immediate visual preview to iframe', {
+            selector: selectedElement.selector,
+            styles: previewStylesForIframe
+        });
+
+        // Send preview to iframe for immediate visual feedback
+        sendToIframe({
+            type: 'design_mode_preview_style',
+            selector: selectedElement.selector,
+            styles: previewStylesForIframe,
+        });
+
+        // If no websocket, just keep the visual preview (won't persist to code)
+        if (!websocket) {
+            console.warn('[useDesignMode] applyStyles: No websocket - changes are visual only');
             return;
         }
 
@@ -275,6 +296,17 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 oldValue: selectedElement.computedStyles[property as keyof typeof selectedElement.computedStyles] || '',
                 newValue: value,
             }));
+
+            // Update the selectedElement's computedStyles to reflect the changes immediately
+            // This ensures the design mode panel shows the updated values
+            const updatedComputedStyles = { ...selectedElement.computedStyles };
+            changes.forEach(({ property, value }) => {
+                (updatedComputedStyles as Record<string, string>)[property] = value;
+            });
+            setSelectedElement({
+                ...selectedElement,
+                computedStyles: updatedComputedStyles,
+            });
 
             // Add to history
             const historyEntry: DesignModeHistoryEntry = {
@@ -293,6 +325,7 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 type: 'design_mode_style_update',
                 selector: selectedElement.selector,
                 filePath: selectedElement.sourceLocation?.filePath,
+                textContent: selectedElement.textContent,
                 changes: styleChanges,
             };
 
@@ -301,8 +334,8 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
             // Send to backend via WebSocket
             websocket.send(JSON.stringify(messagePayload));
 
-            // Clear preview since changes are now applied
-            clearPreview();
+            // DON'T clear preview - keep the visual change visible
+            // clearPreview();
 
             // Notify file change
             if (selectedElement.sourceLocation?.filePath && onFileModified) {
@@ -314,7 +347,7 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         } finally {
             setIsSyncing(false);
         }
-    }, [selectedElement, websocket, historyIndex, clearPreview, onFileModified]);
+    }, [selectedElement, websocket, historyIndex, sendToIframe, onFileModified]);
 
     const applyStyle = useCallback(async (property: string, value: string) => {
         console.log('[useDesignMode] applyStyle called', { property, value });

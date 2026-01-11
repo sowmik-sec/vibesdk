@@ -78,7 +78,11 @@ export function BorderControl({ styles, tailwindClasses, onChange, onBlur }: Bor
     }, [tailwindClasses, styles.borderTopLeftRadius]);
 
     const handleWidthChange = useCallback((value: string) => {
-        onChange('borderWidth', value, true);
+        // Apply to all four sides
+        onChange('borderTopWidth', value, true);
+        onChange('borderRightWidth', value, true);
+        onChange('borderBottomWidth', value, true);
+        onChange('borderLeftWidth', value, true);
     }, [onChange]);
 
     const handleStyleChange = useCallback((value: string) => {
@@ -86,11 +90,19 @@ export function BorderControl({ styles, tailwindClasses, onChange, onBlur }: Bor
     }, [onChange]);
 
     const handleRadiusChange = useCallback((value: string) => {
-        onChange('borderRadius', value, true);
+        // Apply to all four corners
+        onChange('borderTopLeftRadius', value, true);
+        onChange('borderTopRightRadius', value, true);
+        onChange('borderBottomRightRadius', value, true);
+        onChange('borderBottomLeftRadius', value, true);
     }, [onChange]);
 
     const handleColorChange = useCallback((color: string) => {
-        onChange('borderColor', color, true);
+        // Apply to all four sides
+        onChange('borderTopColor', color, true);
+        onChange('borderRightColor', color, true);
+        onChange('borderBottomColor', color, true);
+        onChange('borderLeftColor', color, true);
         setShowColorPicker(false);
     }, [onChange]);
 
