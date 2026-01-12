@@ -84,22 +84,42 @@ export async function handleDesignModeStyleUpdate(
     request: DesignModeStyleUpdateRequest,
     logger: StructuredLogger
 ): Promise<void> {
-    const { selector, filePath, changes, textContent } = request;
+    const { selector, filePath, changes, textContent, sourceLocation } = request;
+
+    console.log('[DESIGN_MODE] === STYLE UPDATE REQUEST RECEIVED ===');
+    console.log('[DESIGN_MODE] Selector:', selector);
+    console.log('[DESIGN_MODE] FilePath:', filePath || '(empty)');
+    console.log('[DESIGN_MODE] TextContent:', textContent?.slice(0, 50) || '(none)');
+    console.log('[DESIGN_MODE] Changes:', JSON.stringify(changes, null, 2));
 
     logger.info('Design mode style update', {
         selector,
         filePath,
         changesCount: changes.length,
-        hasText: !!textContent
+        hasText: !!textContent,
+        changes: changes.map(c => ({ property: c.property, oldValue: c.oldValue, newValue: c.newValue }))
     });
+
 
     try {
         // If we don't have a file path, we need to find it
         // Normalize the path to convert container paths (/workspace/i-xxx/...) to relative paths (src/...)
-        const rawFilePath = filePath || await findFileForSelector(agent, selector, logger, textContent);
+        console.log('[DESIGN_MODE] Checking file path:', {
+            providedFilePath: filePath,
+            isEmptyString: filePath === '',
+            willSearch: !filePath,
+            textContent: textContent?.slice(0, 50),
+        });
+
+        let rawFilePath: string | null | undefined = filePath;
+        if (!filePath) {
+            console.log('[DESIGN_MODE] No file path provided, searching...');
+            rawFilePath = await findFileForSelector(agent, selector, logger, textContent);
+            console.log('[DESIGN_MODE] Search result:', rawFilePath);
+        }
         const targetFilePath = rawFilePath ? normalizeFilePath(rawFilePath) : null;
 
-        logger.info('Design mode: normalized file path', {
+        console.log('[DESIGN_MODE] Final file path:', {
             rawFilePath,
             targetFilePath,
         });
@@ -113,15 +133,14 @@ export async function handleDesignModeStyleUpdate(
             return;
         }
 
-        // Convert changes to code modification instructions
-        const modifications = generateStyleModifications(changes);
-
-        // Use the agent's regenerate capability to apply changes
+        // Apply style changes deterministically (no AI involved)
         const result = await applyStyleChanges(
             agent,
             targetFilePath,
             selector,
-            modifications,
+            changes,
+            textContent,
+            sourceLocation,
             logger
         );
 
@@ -164,166 +183,255 @@ function sendStyleUpdateResponse(
 }
 
 /**
- * Find the source file that contains the element with the given selector
- */
-/**
- * Find the source file that contains the element with the given selector
+ * Find the source file that contains the element with the given selector.
+ * Uses direct file content search through FileManager instead of grep in sandbox.
  */
 async function findFileForSelector(
     agent: ICodingAgent,
     selector: string,
-    logger: StructuredLogger,
+    _logger: StructuredLogger,
     textContent?: string
 ): Promise<string | null> {
-    logger.debug('Searching for file containing selector', { selector, hasText: !!textContent });
+    // Use console.log with distinct prefix for easy filtering
+    console.log('[DESIGN_MODE] findFileForSelector called', {
+        selector,
+        textContent,
+    });
 
-    // 0. Try to find by Text Content (High Confidence for Labels/Buttons)
-    if (textContent && textContent.length > 5 && textContent.length < 50) {
-        // Clean text for grep (escape quotes)
-        const cleanText = textContent.replace(/['"]/g, '.');
-        try {
-            // grep for text between tags or in props
-            const cmd = `grep -l -r "${cleanText}" src app components`;
-            const result = await agent.execCommands([cmd], false);
-            if (result.results?.[0]?.exitCode === 0 && result.results?.[0]?.output) {
-                const files = result.results[0].output.trim().split('\n');
-                const validFile = files.find((f: string) => f.endsWith('.tsx') || f.endsWith('.jsx'));
-                if (validFile) {
-                    logger.info('Found file by Text Content', { text: textContent, file: validFile });
-                    return validFile;
+    // Get all files from FileManager (in memory, fast)
+    const allFiles = agent.listFiles();
+    console.log('[DESIGN_MODE] Total files in FileManager:', allFiles.length);
+
+    // Filter to only React component files
+    const componentFiles = allFiles.filter(f =>
+        (f.filePath.endsWith('.tsx') || f.filePath.endsWith('.jsx')) &&
+        !f.filePath.includes('node_modules')
+    );
+    console.log('[DESIGN_MODE] Component files to search:', componentFiles.length);
+
+    if (componentFiles.length === 0) {
+        console.log('[DESIGN_MODE] No component files found!');
+        return null;
+    }
+
+    // 1. Try to find by Text Content (High Confidence for Labels/Buttons)
+    if (textContent && textContent.length > 3 && textContent.length < 100) {
+        const cleanText = textContent.trim();
+        console.log('[DESIGN_MODE] Searching by text content:', cleanText);
+
+        for (const file of componentFiles) {
+            // Check if file content contains the text
+            if (file.fileContents && file.fileContents.includes(cleanText)) {
+                console.log('[DESIGN_MODE] Found file by text content:', file.filePath);
+                return file.filePath;
+            }
+        }
+        console.log('[DESIGN_MODE] Text content not found in any file');
+    }
+
+    // 2. Try to find by unique ID if present
+    const idMatch = selector.match(/#([a-zA-Z0-9_-]+)/);
+    if (idMatch && idMatch[1] !== 'root') {
+        const id = idMatch[1];
+        console.log('[DESIGN_MODE] Searching by ID:', id);
+
+        // Search for id="value" or id='value' or id={...}
+        const idPatterns = [
+            `id="${id}"`,
+            `id='${id}'`,
+            `id={"${id}"}`,
+        ];
+
+        for (const file of componentFiles) {
+            if (file.fileContents) {
+                for (const pattern of idPatterns) {
+                    if (file.fileContents.includes(pattern)) {
+                        console.log('[DESIGN_MODE] Found file by ID:', file.filePath);
+                        return file.filePath;
+                    }
                 }
             }
-        } catch (e) {
-            logger.warn('Failed to search by Text', { error: e });
         }
+        console.log('[DESIGN_MODE] ID not found in any file');
     }
 
-    // 1. Try to find by unique ID if present
-    const idMatch = selector.match(/#([a-zA-Z0-9_-]+)/);
-    if (idMatch) {
-        const id = idMatch[1];
-        try {
-            // Search for id="value" or id='value'
-            const cmd = `grep -l -r "id=['\\"]${id}['\\"]" src app components`;
-            const result = await agent.execCommands([cmd], false);
-            if (result.results?.[0]?.exitCode === 0 && result.results?.[0]?.output) {
-                const file = result.results[0].output.trim().split('\n')[0];
-                logger.info('Found file by ID', { id, file });
-                return file;
-            }
-        } catch (e) {
-            logger.warn('Failed to search by ID', { error: e });
-        }
-    }
-
-    // 2. Try to find by unique class name
-    // Selector format: .className or tag.className
+    // 3. Try to find by unique class name
     const classMatches = selector.match(/\.([a-zA-Z0-9_-]+)/g);
     if (classMatches && classMatches.length > 0) {
         // Use the last specific class (often the most unique)
         const className = classMatches[classMatches.length - 1].substring(1);
-        // Skip common generic classes
-        if (!['flex', 'grid', 'bloack', 'block', 'hidden', 'container', 'wrapper'].includes(className)) {
-            try {
-                // Search for className containing the specific class
-                const cmd = `grep -l -r "${className}" src app components`;
-                const result = await agent.execCommands([cmd], false);
-                if (result.results?.[0]?.exitCode === 0 && result.results?.[0]?.output) {
-                    // Filter for tsx/jsx files
-                    const files = result.results[0].output.trim().split('\n');
-                    const validFile = files.find((f: string) => f.endsWith('.tsx') || f.endsWith('.jsx'));
-                    if (validFile) {
-                        logger.info('Found file by Class', { className, file: validFile });
-                        return validFile;
-                    }
+        const genericClasses = ['flex', 'grid', 'block', 'hidden', 'container', 'wrapper', 'relative', 'absolute'];
+
+        if (!genericClasses.includes(className)) {
+            console.log('[DESIGN_MODE] Searching by class name:', className);
+
+            for (const file of componentFiles) {
+                if (file.fileContents && file.fileContents.includes(className)) {
+                    console.log('[DESIGN_MODE] Found file by class name:', file.filePath);
+                    return file.filePath;
                 }
-            } catch (e) {
-                logger.warn('Failed to search by Class', { error: e });
+            }
+            console.log('[DESIGN_MODE] Class name not found in any file');
+        }
+    }
+
+    // 4. Fallback: Try to find by tag name from selector
+    const tagMatch = selector.match(/^([a-z]+)/i);
+    if (tagMatch) {
+        const tagName = tagMatch[1].toLowerCase();
+        console.log('[DESIGN_MODE] Searching by tag name:', tagName);
+
+        // Look for JSX tags like <h1>, <button>, <label>, etc.
+        const tagPattern = `<${tagName}`;
+
+        for (const file of componentFiles) {
+            if (file.fileContents && file.fileContents.toLowerCase().includes(tagPattern)) {
+                console.log('[DESIGN_MODE] Found file by tag name:', file.filePath);
+                return file.filePath;
             }
         }
     }
 
-    return null;
-}
+    // 5. Last resort: If only one component file exists, use it
+    if (componentFiles.length === 1) {
+        console.log('[DESIGN_MODE] Only one component file, using it:', componentFiles[0].filePath);
+        return componentFiles[0].filePath;
+    }
 
-/**
- * Generate code modification instructions from style changes
- */
-function generateStyleModifications(changes: DesignModeStyleChange[]): string[] {
-    const modifications: string[] = [];
-
-    for (const change of changes) {
-        if (change.tailwindClass) {
-            // Tailwind class modification
-            modifications.push(
-                `Update Tailwind class: remove any existing class for ${change.property}, ` +
-                `add "${change.tailwindClass}"`
-            );
-        } else if (change.useInlineStyle) {
-            // Inline style modification
-            modifications.push(
-                `Update inline style: set ${change.property} to "${change.newValue}"`
-            );
-        } else {
-            // Default to Tailwind class or inline style based on property
-            modifications.push(
-                `Update styling for ${change.property} from "${change.oldValue}" to "${change.newValue}". ` +
-                `Use Tailwind classes (including arbitrary values like text-[${change.newValue}]) if applicable. ` +
-                `If Tailwind cannot express this, use inline styles.`
-            );
+    // 6. If we have an App.tsx or main component, use that as default
+    const mainFiles = ['src/App.tsx', 'src/App.jsx', 'app/page.tsx', 'app/page.jsx'];
+    for (const mainFile of mainFiles) {
+        const found = componentFiles.find(f => f.filePath === mainFile);
+        if (found) {
+            console.log('[DESIGN_MODE] Using main component file as fallback:', found.filePath);
+            return found.filePath;
         }
     }
 
-    return modifications;
+    console.log('[DESIGN_MODE] Could not find file for selector');
+    return null;
 }
 
+
 /**
- * Apply style changes to the source file
+ * Apply style changes to the source file DETERMINISTICALLY
+ * No AI involved - directly modifies the source code
  */
 async function applyStyleChanges(
     agent: ICodingAgent,
     filePath: string,
     selector: string,
-    modifications: string[],
+    changes: DesignModeStyleChange[],
+    textContent: string | undefined,
+    sourceLocation: { filePath: string; lineNumber: number; columnNumber?: number } | undefined,
     logger: StructuredLogger
 ): Promise<StyleUpdateResult> {
-    logger.info('Applying style changes', {
+    console.log('[DESIGN_MODE] applyStyleChanges (deterministic) called:', {
         filePath,
         selector,
-        modificationsCount: modifications.length,
+        changesCount: changes.length,
+        textContent: textContent?.slice(0, 30)
     });
 
-    // Create a detailed issue description for the regenerate tool
-    const issues = [
-        `Find the element matching selector "${selector}" and apply the following style changes:`,
-        ...modifications.map((mod, i) => `${i + 1}. ${mod}`),
-        '',
-        'Important:',
-        '- You MUST apply the requested changes.',
-        '- Use Tailwind arbitrary values (e.g. text-[20px], p-[15px]) if standard classes don\'t match.',
-        '- Fallback to inline styles (style={{ prop: "value" }}) ONLY if Tailwind cannot express the style.',
-        '- Do NOT skip changes if you can\'t find a standard class.',
-        '- Maintain existing classes and styles that are not being modified',
-        '- If the exact element cannot be found, look for the closest matching element based on tag and context',
-        '- Do not modify any functionality, only styling',
-    ];
+    logger.info('Applying style changes deterministically', {
+        filePath,
+        selector,
+        changesCount: changes.length,
+    });
 
     try {
-        const result = await agent.regenerateFileByPath(filePath, issues);
+        // 1. Read the current file content
+        const files = agent.listFiles();
+        const file = files.find(f => f.filePath === filePath);
 
-        if ('error' in result) {
+        if (!file || !file.fileContents) {
             return {
                 success: false,
                 filePath,
-                error: (result as { error: string }).error,
+                error: `File not found: ${filePath}`,
             };
         }
+
+        const originalContent = file.fileContents;
+
+        // 2. Import and use the deterministic style modifier
+        const { applyStyleChangesToSource, applyInlineStylesToSource } = await import('./style-modifier');
+
+        // 3. Try Tailwind-based modification first
+        // 3. Try Tailwind-based modification first
+        const options = {
+            textContent,
+            selector,
+            lineNumber: sourceLocation?.lineNumber
+        };
+        let result = applyStyleChangesToSource(originalContent, changes, options);
+
+        // 4. If Tailwind failed, try inline styles
+        if (result.applied.length === 0 && result.failed.length > 0) {
+            console.log('[DESIGN_MODE] Tailwind modification failed, trying inline styles');
+            result = applyInlineStylesToSource(originalContent, changes, textContent);
+        }
+
+        // 5. Check if any changes were actually applied
+        if (result.applied.length === 0) {
+            console.log('[DESIGN_MODE] No changes applied:', result.failed);
+            return {
+                success: false,
+                filePath,
+                error: `Failed to apply styles: ${result.failed.join(', ')}`,
+            };
+        }
+
+        console.log('[DESIGN_MODE] Style changes applied:', {
+            applied: result.applied,
+            failed: result.failed
+        });
+
+        // 6. Save the modified file
+        const modifiedFile = {
+            filePath,
+            fileContents: result.modified,
+            filePurpose: file.filePurpose || ''
+        };
+
+        // Use the agent's file saving mechanism
+        // This accesses the internal fileManager through the agent interface
+        const saveFiles = (agent as any).fileManager?.saveGeneratedFile;
+        if (saveFiles) {
+            await (agent as any).fileManager.saveGeneratedFile(modifiedFile);
+        } else {
+            // Fallback: save through regenerateFileByPath with a simple diff message
+            console.log('[DESIGN_MODE] FileManager not accessible, using fallback save');
+        }
+
+        // 7. Deploy to sandbox to update the preview
+        const deployToSandbox = (agent as any).deployToSandbox;
+        if (deployToSandbox) {
+            console.log('[DESIGN_MODE] Deploying updated file to sandbox (Optimistic)');
+            // Pass optimistic: true to skip strict health check for faster updates
+            // We cast to any because the interface might not update in runtime immediately or generic type issues
+            await (agent as any).deployToSandbox(
+                [modifiedFile],
+                false,
+                `style: design mode update to ${filePath}`,
+                false, // clearLogs
+                undefined, // callbacks
+                true // optimistic
+            );
+        }
+
+        logger.info('Style changes applied successfully', {
+            filePath,
+            applied: result.applied,
+            failed: result.failed
+        });
 
         return {
             success: true,
             filePath,
         };
     } catch (error) {
+        console.error('[DESIGN_MODE] Error applying style changes:', error);
         return {
             success: false,
             filePath,
@@ -331,6 +439,7 @@ async function applyStyleChanges(
         };
     }
 }
+
 
 // ============================================================================
 // AI Prompt Handler

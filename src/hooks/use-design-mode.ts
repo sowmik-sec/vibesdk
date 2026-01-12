@@ -99,6 +99,11 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
     // Track preview styles for cleanup
     const previewStylesRef = useRef<Map<string, Record<string, string>>>(new Map());
 
+    // Debounce timer for backend persistence (to prevent immediate page reload)
+    // const persistenceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Pending changes to be persisted
+    // const pendingChangesRef = useRef<Array<{ property: string; value: string }>>([]);
+
     // ========================================================================
     // Iframe Communication
     // ========================================================================
@@ -144,7 +149,14 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 break;
 
             case 'design_mode_element_selected':
-                console.log('[DesignMode] Element SELECTED:', message.element);
+                console.log('[DesignMode] Element SELECTED:', {
+                    tagName: message.element?.tagName,
+                    selector: message.element?.selector,
+                    sourceLocation: message.element?.sourceLocation,
+                    hasFilePath: !!message.element?.sourceLocation?.filePath,
+                    filePath: message.element?.sourceLocation?.filePath || '(empty)',
+                    textContent: message.element?.textContent?.slice(0, 50),
+                });
                 setSelectedElement(message.element);
                 setHoveredElement(null);
                 break;
@@ -325,26 +337,42 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 type: 'design_mode_style_update',
                 selector: selectedElement.selector,
                 filePath: selectedElement.sourceLocation?.filePath,
+                sourceLocation: selectedElement.sourceLocation,
                 textContent: selectedElement.textContent,
                 changes: styleChanges,
             };
 
-            console.log('[useDesignMode] Sending to WebSocket:', messagePayload);
+            // TEMPORARILY: Send immediately (no debounce) to debug persistence issue
+            console.log('[useDesignMode] Sending to WebSocket IMMEDIATELY:', {
+                payload: messagePayload,
+                sourceLocationSrc: selectedElement.sourceLocation,
+                payloadSourceLocation: messagePayload.sourceLocation
+            });
+
+            // Validate websocket is open (readyState 1 = OPEN)
+            if (!websocket || websocket.readyState !== 1) {
+                console.error('[useDesignMode] WebSocket not open!', {
+                    hasWebsocket: !!websocket,
+                    readyState: websocket?.readyState
+                });
+                setIsSyncing(false);
+                return;
+            }
 
             // Send to backend via WebSocket
             websocket.send(JSON.stringify(messagePayload));
-
-            // DON'T clear preview - keep the visual change visible
-            // clearPreview();
+            console.log('[useDesignMode] WebSocket message sent successfully');
 
             // Notify file change
             if (selectedElement.sourceLocation?.filePath && onFileModified) {
                 onFileModified(selectedElement.sourceLocation.filePath);
             }
+
+            setIsSyncing(false);
+
         } catch (error) {
             console.error('[useDesignMode] applyStyles error:', error);
             setSyncError(error instanceof Error ? error.message : 'Failed to apply styles');
-        } finally {
             setIsSyncing(false);
         }
     }, [selectedElement, websocket, historyIndex, sendToIframe, onFileModified]);

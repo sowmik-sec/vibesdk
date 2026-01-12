@@ -54,8 +54,47 @@ const LINE_HEIGHTS = [
 export function TypographyControl({ styles, tailwindClasses, onChange, onBlur }: TypographyControlProps) {
     // Find current values from tailwind classes or computed styles
     const currentSize = useMemo(() => {
+        // First, try to match standard Tailwind size classes
         const sizeClass = tailwindClasses.find(c => c.match(/^text-(xs|sm|base|lg|xl|[2-5]xl)$/));
-        return FONT_SIZES.find(s => s.tw === sizeClass) || FONT_SIZES.find(s => s.value === styles.fontSize);
+        if (sizeClass) {
+            return FONT_SIZES.find(s => s.tw === sizeClass);
+        }
+
+        // Check for arbitrary value class like text-[1.125rem] or text-[18px]
+        const arbitraryMatch = tailwindClasses.find(c => c.match(/^text-\[[\d.]+(?:rem|px|em)\]$/));
+        if (arbitraryMatch) {
+            const valueMatch = arbitraryMatch.match(/text-\[([\d.]+(?:rem|px|em))\]/);
+            if (valueMatch) {
+                const arbitraryValue = valueMatch[1];
+                // Try to find matching standard size
+                const matchingSize = FONT_SIZES.find(s => s.value === arbitraryValue);
+                if (matchingSize) return matchingSize;
+                // Return custom entry for arbitrary value
+                return { label: `Custom (${arbitraryValue})`, value: arbitraryValue, tw: arbitraryMatch };
+            }
+        }
+
+        // Fallback: Convert computed style (pixels) to rem and try to match
+        if (styles.fontSize) {
+            // getComputedStyle returns pixels, e.g., "18px"
+            const pxMatch = styles.fontSize.match(/^([\d.]+)px$/);
+            if (pxMatch) {
+                const px = parseFloat(pxMatch[1]);
+                // Assume 16px base font size (1rem = 16px)
+                const rem = px / 16;
+                const remValue = `${rem}rem`;
+                const matchingSize = FONT_SIZES.find(s => s.value === remValue);
+                if (matchingSize) return matchingSize;
+                // Return custom entry with the computed size
+                return { label: `Custom (${styles.fontSize})`, value: styles.fontSize, tw: '' };
+            }
+            // If it's already in rem, try direct match
+            const matchingSize = FONT_SIZES.find(s => s.value === styles.fontSize);
+            if (matchingSize) return matchingSize;
+            return { label: `Custom (${styles.fontSize})`, value: styles.fontSize, tw: '' };
+        }
+
+        return FONT_SIZES[0]; // Default to xs if nothing matches
     }, [tailwindClasses, styles.fontSize]);
 
     const currentWeight = useMemo(() => {
@@ -125,8 +164,8 @@ export function TypographyControl({ styles, tailwindClasses, onChange, onBlur }:
                             key={align.value}
                             onClick={() => handleAlignChange(align.value)}
                             className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${currentAlign?.value === align.value
-                                    ? 'bg-accent text-white'
-                                    : 'bg-bg-3 text-text-primary hover:bg-bg-2'
+                                ? 'bg-accent text-white'
+                                : 'bg-bg-3 text-text-primary hover:bg-bg-2'
                                 }`}
                         >
                             {align.label}

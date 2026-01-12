@@ -819,6 +819,35 @@ export class CodeGeneratorAgent extends Agent<Env, AgentState> implements AgentI
         return path.join(' > ');
     }
     
+    function getFiberSource(element) {
+        if (!element) return null;
+        function normalizePath(filePath) {
+            if (!filePath) return '';
+            if (filePath.includes('/workspace/')) {
+                const parts = filePath.split('/'); const wsIdx = parts.indexOf('workspace');
+                if (wsIdx >= 0 && wsIdx + 2 < parts.length) filePath = parts.slice(wsIdx + 2).join('/');
+            } else if (filePath.startsWith('/app/')) filePath = filePath.substring(5);
+            else if (filePath.startsWith('/src/')) filePath = filePath.substring(1);
+            return filePath;
+        }
+        try {
+            const keys = Object.keys(element);
+            for (let i = 0; i < keys.length; i++) {
+                const key = keys[i];
+                if (key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')) {
+                    let fiber = element[key];
+                    let curr = fiber;
+                    while (curr) {
+                        if (curr._debugSource) return { fileName: normalizePath(curr._debugSource.fileName), lineNumber: curr._debugSource.lineNumber, columnNumber: curr._debugSource.columnNumber };
+                        if (curr._debugOwner && curr._debugOwner._debugSource) return { fileName: normalizePath(curr._debugOwner._debugSource.fileName), lineNumber: curr._debugOwner._debugSource.lineNumber, columnNumber: curr._debugOwner._debugSource.columnNumber };
+                        curr = curr.return;
+                    }
+                }
+            }
+        } catch (e) { console.warn('[VibeSDK] Error extracting fiber source:', e); }
+        return null;
+    }
+
     function extractStyles(el) {
         const computed = window.getComputedStyle(el), styles = {};
         COMPUTED_STYLE_PROPERTIES.forEach(p => { styles[p] = computed.getPropertyValue(p.replace(/([A-Z])/g, '-$1').toLowerCase()); });
@@ -833,7 +862,7 @@ export class CodeGeneratorAgent extends Agent<Env, AgentState> implements AgentI
             boundingRect: {top:r.top,left:r.left,width:r.width,height:r.height},
             computedStyles: extractStyles(el),
             tailwindClasses: (el.className && typeof el.className === 'string') ? el.className.trim().split(/\\s+/).filter(c => c) : [],
-            dataAttributes: {}, sourceLocation: null,
+            dataAttributes: {}, sourceLocation: getFiberSource(el),
             parentSelector: el.parentElement ? generateSelector(el.parentElement) : null,
             childCount: el.children.length
         };
@@ -865,15 +894,6 @@ export class CodeGeneratorAgent extends Agent<Env, AgentState> implements AgentI
     function handleKeyDown(e) { if (e.key === 'Escape' && selectedElement) { selectedElement = null; hideOverlay(selectionOverlay); sendMessage({ type: 'design_mode_element_deselected' }); } }
     function handleScroll() { if (selectedElement && selectionOverlay) positionOverlay(selectionOverlay, selectedElement.getBoundingClientRect()); if (hoveredElement && highlightOverlay) positionOverlay(highlightOverlay, hoveredElement.getBoundingClientRect()); }
     
-    const previewStyles = new Map();
-    function applyPreviewStyle(sel, styles) {
-        clearPreviewStyle(sel);
-        const css = Object.entries(styles).map(([p,v]) => p.replace(/([A-Z])/g,'-$1').toLowerCase()+':'+v+' !important').join(';');
-        const s = document.createElement('style'); s.id = '__vibesdk_preview_'+sel.replace(/[^a-zA-Z0-9]/g,'_'); s.textContent = sel+'{'+css+'}';
-        document.head.appendChild(s); previewStyles.set(sel, s);
-    }
-    function clearPreviewStyle(sel) { const e = previewStyles.get(sel); if (e) { e.remove(); previewStyles.delete(sel); } }
-    function clearAllPreviewStyles() { previewStyles.forEach(e => e.remove()); previewStyles.clear(); }
     
     function enableDesignMode() {
         if (isDesignModeActive) return;
@@ -900,11 +920,88 @@ export class CodeGeneratorAgent extends Agent<Env, AgentState> implements AgentI
         console.log('[VibeSDK] Design mode disabled');
     }
     
+    // Helper function to convert camelCase to kebab-case
+    function toKebabCase(str) {
+        return str.replace(/([A-Z])/g, '-$1').toLowerCase();
+    }
+    
+    // Apply preview styles DIRECTLY to the selected element (instant feedback)
+    function applyPreviewStyle(sel, styles) {
+        // Use the stored selectedElement for instant application
+        // Fall back to querySelector if element not stored
+        const el = selectedElement || document.querySelector(sel);
+        
+        console.log('[VibeSDK] applyPreviewStyle called', { 
+            selector: sel, 
+            styles: styles,
+            hasSelectedElement: !!selectedElement,
+            usingQuerySelector: !selectedElement && !!el,
+            elementFound: !!el
+        });
+        
+        if (!el) {
+            console.warn('[VibeSDK] applyPreviewStyle: No element found for selector:', sel);
+            return;
+        }
+        
+        // Store original styles for restoration
+        if (!el.__vibesdk_orig) {
+            el.__vibesdk_orig = {};
+        }
+        
+        // Apply each style directly to the element
+        for (const prop in styles) {
+            const kebabProp = toKebabCase(prop);
+            const value = styles[prop];
+            
+            // Store original value if not already stored
+            if (!(prop in el.__vibesdk_orig)) {
+                el.__vibesdk_orig[prop] = el.style.getPropertyValue(kebabProp) || '';
+            }
+            
+            console.log('[VibeSDK] Setting style:', kebabProp, '=', value);
+            el.style.setProperty(kebabProp, value, 'important');
+        }
+        
+        console.log('[VibeSDK] applyPreviewStyle complete, element style:', el.style.cssText);
+    }
+    
+    // Clear preview styles and restore originals
+    function clearPreviewStyle(sel) {
+        const el = selectedElement || document.querySelector(sel);
+        console.log('[VibeSDK] clearPreviewStyle called', { selector: sel, hasElement: !!el });
+        
+        if (el && el.__vibesdk_orig) {
+            for (const prop in el.__vibesdk_orig) {
+                const kebabProp = toKebabCase(prop);
+                const originalValue = el.__vibesdk_orig[prop];
+                if (originalValue) {
+                    el.style.setProperty(kebabProp, originalValue);
+                } else {
+                    el.style.removeProperty(kebabProp);
+                }
+            }
+            delete el.__vibesdk_orig;
+        }
+    }
+    
+    function clearAllPreviewStyles() {
+        // Clear from selected element if exists
+        if (selectedElement && selectedElement.__vibesdk_orig) {
+            clearPreviewStyle(null);
+        }
+    }
+    
     window.addEventListener('message', function(e) {
         const d = e.data; if (!d || d.prefix !== DESIGN_MODE_MESSAGE_PREFIX) return;
+        console.log('[VibeSDK] Message received:', d.type, d);
         if (d.type === 'design_mode_enable') enableDesignMode();
         else if (d.type === 'design_mode_disable') disableDesignMode();
-        else if (d.type === 'design_mode_preview_style' && d.selector && d.styles) applyPreviewStyle(d.selector, d.styles);
+        else if (d.type === 'design_mode_preview_style') {
+            console.log('[VibeSDK] Received preview_style:', { selector: d.selector, styles: d.styles });
+            if (d.selector && d.styles) applyPreviewStyle(d.selector, d.styles);
+            else console.warn('[VibeSDK] preview_style missing selector or styles!', d);
+        }
         else if (d.type === 'design_mode_clear_preview') { if (d.selector) clearPreviewStyle(d.selector); else clearAllPreviewStyles(); }
         else if (d.type === 'design_mode_clear_selection') { selectedElement = null; hideOverlay(selectionOverlay); }
     });

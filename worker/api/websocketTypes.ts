@@ -576,6 +576,11 @@ export type DesignModeStyleUpdateRequest = {
 	type: 'design_mode_style_update';
 	selector: string;
 	filePath?: string;
+	sourceLocation?: {
+		filePath: string;
+		lineNumber: number;
+		columnNumber?: number;
+	};
 	textContent?: string;
 	changes: DesignModeStyleChange[];
 };

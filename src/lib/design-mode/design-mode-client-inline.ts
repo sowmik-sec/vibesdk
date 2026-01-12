@@ -170,8 +170,81 @@ export function getDesignModeClientScript(): string {
         return element.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('__vibesdk'));
     }
     
+    // Extract React Fiber source location for an element
+    // This traverses React internals to find _debugSource which contains file/line info
+    function getFiberSource(element) {
+        if (!element) return null;
+        
+        function normalizePath(filePath) {
+            if (!filePath) return '';
+            // Normalize container paths:
+            // /workspace/i-xxx-uuid/src/... -> src/...
+            // /app/src/... -> src/...
+            if (filePath.includes('/workspace/')) {
+                const parts = filePath.split('/');
+                const wsIdx = parts.indexOf('workspace');
+                if (wsIdx >= 0 && wsIdx + 2 < parts.length) {
+                    filePath = parts.slice(wsIdx + 2).join('/');
+                }
+            } else if (filePath.startsWith('/app/')) {
+                filePath = filePath.substring(5);
+            } else if (filePath.startsWith('/src/')) {
+                filePath = filePath.substring(1);
+            }
+            return filePath;
+        }
+
+        try {
+            const keys = Object.keys(element);
+            for (let i = 0; i < keys.length; i++) {
+                const key = keys[i];
+                if (key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')) {
+                    let fiber = element[key];
+                    
+                    // Strategy: Traverse up the fiber tree looking for a user component with source
+                    // 1. Check current fiber
+                    // 2. Check return (parent) chain
+                    // 3. Check _debugOwner (conceptual owner)
+                    
+                    let curr = fiber;
+                    while (curr) {
+                        // Check if this fiber has source info
+                        if (curr._debugSource) {
+                            return {
+                                fileName: normalizePath(curr._debugSource.fileName),
+                                lineNumber: curr._debugSource.lineNumber,
+                                columnNumber: curr._debugSource.columnNumber
+                            };
+                        }
+                        
+                        // If not, check its debug owner (often points to the component that created this element)
+                        if (curr._debugOwner && curr._debugOwner._debugSource) {
+                             return {
+                                fileName: normalizePath(curr._debugOwner._debugSource.fileName),
+                                lineNumber: curr._debugOwner._debugSource.lineNumber,
+                                columnNumber: curr._debugOwner._debugSource.columnNumber
+                            };
+                        }
+                        
+                        // Move up the tree
+                        curr = curr.return;
+                    }
+            }
+        } catch (e) {
+            console.warn('[VibeSDK] Error extracting fiber source:', e);
+        }
+        return null;
+    }
+    
+
     function extractElementData(element) {
         const rect = element.getBoundingClientRect();
+        let sourceLocation = null;
+        try {
+            sourceLocation = getFiberSource(element);
+        } catch (err) {
+            console.warn('[VibeSDK] getFiberSource error:', err);
+        }
         return {
             tagName: element.tagName.toLowerCase(),
             id: element.id || null,
@@ -182,11 +255,13 @@ export function getDesignModeClientScript(): string {
             computedStyles: extractComputedStyles(element),
             tailwindClasses: extractTailwindClasses(element),
             dataAttributes: {},
-            sourceLocation: null,
+            sourceLocation: sourceLocation,
             parentSelector: element.parentElement ? generateSelector(element.parentElement) : null,
             childCount: element.children.length
         };
     }
+
+
     
     // ========================================================================
     // Event Handlers
@@ -263,39 +338,79 @@ export function getDesignModeClientScript(): string {
     }
     
     // ========================================================================
-    // Style Preview
+    // Style Preview (Direct DOM manipulation for instant feedback)
     // ========================================================================
     
-    const previewStyleElements = new Map();
-    
-    function applyPreviewStyle(selector, styles) {
-        clearPreviewStyle(selector);
-        
-        const cssProperties = Object.entries(styles)
-            .map(function([prop, value]) {
-                const kebabProp = prop.replace(/([A-Z])/g, '-$1').toLowerCase();
-                return kebabProp + ': ' + value + ' !important';
-            })
-            .join('; ');
-        
-        const styleEl = document.createElement('style');
-        styleEl.id = '__vibesdk_preview_' + selector.replace(/[^a-zA-Z0-9]/g, '_');
-        styleEl.textContent = selector + ' { ' + cssProperties + ' }';
-        document.head.appendChild(styleEl);
-        previewStyleElements.set(selector, styleEl);
+    // Helper function to convert camelCase to kebab-case
+    function toKebabCase(str) {
+        return str.replace(/([A-Z])/g, '-$1').toLowerCase();
     }
     
-    function clearPreviewStyle(selector) {
-        const existing = previewStyleElements.get(selector);
-        if (existing) {
-            existing.remove();
-            previewStyleElements.delete(selector);
+    // Apply preview styles DIRECTLY to the selected element (instant feedback)
+    function applyPreviewStyle(sel, styles) {
+        // Use the stored selectedElement for instant application
+        // Fall back to querySelector if element not stored
+        const el = selectedElement || document.querySelector(sel);
+        
+        console.log('[VibeSDK] applyPreviewStyle called', { 
+            selector: sel, 
+            styles: styles,
+            hasSelectedElement: !!selectedElement,
+            usingQuerySelector: !selectedElement && !!el,
+            elementFound: !!el
+        });
+        
+        if (!el) {
+            console.warn('[VibeSDK] applyPreviewStyle: No element found for selector:', sel);
+            return;
+        }
+        
+        // Store original styles for restoration
+        if (!el.__vibesdk_orig) {
+            el.__vibesdk_orig = {};
+        }
+        
+        // Apply each style directly to the element
+        for (const prop in styles) {
+            const kebabProp = toKebabCase(prop);
+            const value = styles[prop];
+            
+            // Store original value if not already stored
+            if (!(prop in el.__vibesdk_orig)) {
+                el.__vibesdk_orig[prop] = el.style.getPropertyValue(kebabProp) || '';
+            }
+            
+            console.log('[VibeSDK] Setting style:', kebabProp, '=', value);
+            el.style.setProperty(kebabProp, value, 'important');
+        }
+        
+        console.log('[VibeSDK] applyPreviewStyle complete, element style:', el.style.cssText);
+    }
+    
+    // Clear preview styles and restore originals
+    function clearPreviewStyle(sel) {
+        const el = selectedElement || document.querySelector(sel);
+        console.log('[VibeSDK] clearPreviewStyle called', { selector: sel, hasElement: !!el });
+        
+        if (el && el.__vibesdk_orig) {
+            for (const prop in el.__vibesdk_orig) {
+                const kebabProp = toKebabCase(prop);
+                const originalValue = el.__vibesdk_orig[prop];
+                if (originalValue) {
+                    el.style.setProperty(kebabProp, originalValue);
+                } else {
+                    el.style.removeProperty(kebabProp);
+                }
+            }
+            delete el.__vibesdk_orig;
         }
     }
     
     function clearAllPreviewStyles() {
-        previewStyleElements.forEach(function(el) { el.remove(); });
-        previewStyleElements.clear();
+        // Clear from selected element if exists
+        if (selectedElement && selectedElement.__vibesdk_orig) {
+            clearPreviewStyle(null);
+        }
     }
     
     // ========================================================================
@@ -305,6 +420,8 @@ export function getDesignModeClientScript(): string {
     function handleParentMessage(event) {
         const data = event.data;
         if (!data || data.prefix !== DESIGN_MODE_MESSAGE_PREFIX) return;
+        
+        console.log('[VibeSDK] handleParentMessage received:', data.type, data);
         
         switch (data.type) {
             case 'design_mode_enable':
@@ -316,8 +433,11 @@ export function getDesignModeClientScript(): string {
                 break;
                 
             case 'design_mode_preview_style':
+                console.log('[VibeSDK] Received preview_style message:', { selector: data.selector, styles: data.styles });
                 if (data.selector && data.styles) {
                     applyPreviewStyle(data.selector, data.styles);
+                } else {
+                    console.warn('[VibeSDK] preview_style missing selector or styles!');
                 }
                 break;
                 
