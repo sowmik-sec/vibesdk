@@ -1,5 +1,5 @@
 export const getProtocolForHost = (host: string): string => {
-    if (host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('0.0.0.0') || host.startsWith('::1')) {
+    if (host.startsWith('localhost') || host.endsWith('.localhost') || host.startsWith('127.0.0.1') || host.startsWith('0.0.0.0') || host.startsWith('::1')) {
         return 'http';
     } else {
         return 'https';
@@ -33,6 +33,11 @@ export function migratePreviewUrl(storedUrl: string | undefined, env: Env): stri
 
         // Already using current domain
         if (hostname.endsWith(`.${currentDomain}`)) {
+            return storedUrl;
+        }
+
+        // Special case: Preserve Cloudflare Tunnel URLs for local dev
+        if (hostname.endsWith('.trycloudflare.com')) {
             return storedUrl;
         }
 
