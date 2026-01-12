@@ -15,27 +15,27 @@ export const PROMPT_UTILS = {
      */
     replaceTemplateVariables(template: string, variables: Record<string, string>): string {
         let result = template;
-        
+
         for (const [key, value] of Object.entries(variables)) {
             const placeholder = `{{${key}}}`;
             result = result.replaceAll(placeholder, value ?? '');
         }
-        
+
         return result;
     },
 
     serializeTreeNodes(node: FileTreeNode): string {
         // The output starts with the root node's name.
         const outputParts: string[] = [node.path.split('/').pop() || node.path];
-    
+
         function processChildren(children: FileTreeNode[], prefix: string) {
             children.forEach((child, index) => {
                 const isLast = index === children.length - 1;
                 const connector = isLast ? '└── ' : '├── ';
                 const displayName = child.path.split('/').pop() || child.path;
-    
+
                 outputParts.push(prefix + connector + displayName);
-    
+
                 // If the child is a directory with its own children, recurse deeper.
                 if (child.type === 'directory' && child.children && child.children.length > 0) {
                     // The prefix for the next level depends on whether the current node
@@ -45,12 +45,12 @@ export const PROMPT_UTILS = {
                 }
             });
         }
-    
+
         // Start the process if the root node has children.
         if (node.children && node.children.length > 0) {
             processChildren(node.children, '');
         }
-    
+
         return outputParts.join('\n');
     },
 
@@ -108,8 +108,8 @@ and provide a preview url for the application.
                 const errorText = e.message;
                 // Remove any trace lines with no 'tsx' or 'ts' extension in them
                 const cleanedText = errorText.split('\n')
-                                    .map(line => line.includes('/deps/') && !(line.includes('.tsx') || line.includes('.ts')) ? '' : line).filter(line => line.trim() !== '')
-                                    .join('\n');
+                    .map(line => line.includes('/deps/') && !(line.includes('.tsx') || line.includes('.ts')) ? '' : line).filter(line => line.trim() !== '')
+                    .join('\n');
                 // Truncate to 1000 characters to prevent context overflow
                 return `<error>${cleanedText.slice(0, 1000)}</error>`;
             });
@@ -122,7 +122,7 @@ and provide a preview url for the application.
     serializeStaticAnalysis(staticAnalysis: StaticAnalysisResponse): string {
         const lintOutput = staticAnalysis.lint?.rawOutput || 'No linting issues detected';
         const typecheckOutput = staticAnalysis.typecheck?.rawOutput || 'No type checking issues detected';
-        
+
         return `**LINT ANALYSIS:**
 ${lintOutput}
 
@@ -141,8 +141,8 @@ ${typecheckOutput}`;
     serializeFiles(files: FileOutputType[], serializerType: CodeSerializerType): string {
         // Use scof format
         return CODE_SERIALIZERS[serializerType](files);
-    },    
-    
+    },
+
     summarizeFiles(files: FileState[], max = 120): string {
         const compact = files
             .slice(0, max)
@@ -261,7 +261,7 @@ useEffect(() => { init(config); }, [config]); // stable reference
 
 </REACT_RENDER_LOOP_PREVENTION>`,
 
-COMMON_PITFALLS: `<AVOID COMMON PITFALLS>
+    COMMON_PITFALLS: `<AVOID COMMON PITFALLS>
     **TOP 6 MISSION-CRITICAL RULES (FAILURE WILL CRASH THE APP):**
     1. **DEPENDENCY VALIDATION:** BEFORE writing any import statement, verify it exists in <DEPENDENCIES>. Common failures: @xyflow/react uses { ReactFlow } not default import, @/lib/utils for cn function. If unsure, check the dependency list first.
     2. **IMPORT & EXPORT INTEGRITY:** Ensure every component, function, or variable is correctly defined and imported properly (and exported properly). Mismatched default/named imports will cause crashes. NEVER write \`import React, 'react';\` - always use \`import React from 'react';\`
@@ -656,7 +656,7 @@ export default function Page() {
 - Never place muted text over dark backgrounds; if background is dark, use paired *-foreground or text-white
 - Aim for >= 4.5:1 contrast for normal text (>= 3:1 for large)
 `,
-PROJECT_CONTEXT: `Here is everything you will need about the project:
+    PROJECT_CONTEXT: `Here is everything you will need about the project:
 
 <PROJECT_CONTEXT>
 
@@ -824,8 +824,8 @@ export const STRATEGIES = {
     **This is a Cloudflare Workers & Durable Objects project. The environment is preconfigured. Absolutely DO NOT Propose changes to wrangler.toml or any other config files. These config files are hidden from you but they do exist.**
     **The Homepage of the frontend is a dummy page. It should be rewritten as the primary page of the application in the initial phase.**
     **Refrain from editing any of the 'dont touch' files in the project, e.g - package.json, vite.config.ts, wrangler.jsonc, etc.**
-</PHASES GENERATION STRATEGY>`, 
-FRONTEND_FIRST_CODING: `<PHASES GENERATION STRATEGY>
+</PHASES GENERATION STRATEGY>`,
+    FRONTEND_FIRST_CODING: `<PHASES GENERATION STRATEGY>
     **STRATEGY: Scalable, Demoable Frontend and core application First / Iterative Feature Addition later**
     The project would be developed live: The user (client) would be provided a preview link after each phase. This is our rapid development and delivery paradigm.
     The core principle is to establish a visually complete and polished frontend presentation early on with core functionalities implemented, before layering in more advanced functionality and fleshing out the backend.
@@ -839,7 +839,7 @@ FRONTEND_FIRST_CODING: `<PHASES GENERATION STRATEGY>
     ${STRATEGIES_UTILS.CODING_GUIDELINES}
 
     **Make sure to implement all the features and functionality requested by the user and more. The application should be fully complete by the end of the last phase. There should be no compromises**
-</PHASES GENERATION STRATEGY>`, 
+</PHASES GENERATION STRATEGY>`,
 }
 
 export interface GeneralSystemPromptBuilderParams {
@@ -860,7 +860,7 @@ export function generalSystemPromptBuilder(
     const variables: Record<string, string> = {
         query: params.query,
     };
-    
+
     // Template context (optional)
     if (params.templateDetails) {
         variables.template = PROMPT_UTILS.serializeTemplate(params.templateDetails);
@@ -880,7 +880,7 @@ export function generalSystemPromptBuilder(
             const agenticBlueprint = params.blueprint as AgenticBlueprint;
             variables.blueprint = TemplateRegistry.markdown.serialize(agenticBlueprint, AgenticBlueprintSchema);
             variables.blueprintDependencies = agenticBlueprint.frameworks?.join(', ') ?? '';
-            variables.agenticPlan = agenticBlueprint.plan.map((step, i) => `${i + 1}. ${step}`).join('\n');
+            variables.agenticPlan = agenticBlueprint.plan?.map((step, i) => `${i + 1}. ${step}`).join('\n') ?? '';
         }
     }
 
@@ -902,7 +902,7 @@ export function generalSystemPromptBuilder(
 export function issuesPromptFormatter(issues: IssueReport): string {
     const runtimeErrorsText = PROMPT_UTILS.serializeErrors(issues.runtimeErrors);
     const staticAnalysisText = PROMPT_UTILS.serializeStaticAnalysis(issues.staticAnalysis);
-    
+
     return `## ERROR ANALYSIS PRIORITY MATRIX
 
 ### 1. CRITICAL RUNTIME ERRORS (Fix First - Deployment Blockers)
@@ -948,7 +948,7 @@ export const USER_PROMPT_FORMATTER = {
                     files.forEach((file) => fileMap.set(file.filePath, file));
                     const lastPhaseFiles = lastPhase.files.map((file) => fileMap.get(file.path)).filter((file) => file !== undefined);
                     lastPhaseFilesDiff = lastPhaseFiles.map((file) => file.lastDiff).join('\n');
-        
+
                     // Set lastPhase = false for all phases but the last
                     phases.forEach((phase) => {
                         if (phase !== lastPhase) {
@@ -959,16 +959,16 @@ export const USER_PROMPT_FORMATTER = {
 
                 // Split phases into older (redacted) and last
                 const olderPhases = phases.slice(0, -1);
-                
+
                 // Serialize older phases without files, recent phases with files
                 if (olderPhases.length > 0) {
                     const olderPhasesLite = olderPhases.map(({ name, description }) => ({ name, description }));
                     phasesText += TemplateRegistry.markdown.serialize({ phases: olderPhasesLite }, z.object({ phases: z.array(PhaseConceptLiteSchema) }));
                 }
                 phasesText += '\n\nLast Phase Implemented:\n' + TemplateRegistry.markdown.serialize(lastPhase, PhaseConceptSchema);
-                
-                const redactionNotice = olderPhases.length > 0 
-                    ? `**Note:** File details for the first ${olderPhases.length} phase(s) have been redacted to optimize context. Only the last phase includes complete file information.\n` 
+
+                const redactionNotice = olderPhases.length > 0
+                    ? `**Note:** File details for the first ${olderPhases.length} phase(s) have been redacted to optimize context. Only the last phase includes complete file information.\n`
                     : '';
 
                 phasesText = COMPLETED_PHASES_CONTEXT.replaceAll('{{phases}}', phasesText).replaceAll('{{redactionNotice}}', redactionNotice);
@@ -988,7 +988,7 @@ export const USER_PROMPT_FORMATTER = {
         };
 
         const prompt = PROMPT_UTILS.replaceTemplateVariables(PROMPT_UTILS.PROJECT_CONTEXT, variables);
-        
+
         return PROMPT_UTILS.verifyPrompt(prompt);
     },
 };
@@ -1016,13 +1016,13 @@ const getStyleInstructions = (style: TemplateSelection['styleSelection']): strin
 - Example Elements: Cartoon-style characters, brushstroke fonts, animated SVGs.
 - Heading Font options: Playfair Display, Fredericka the Great, Great Vibes
             `
-//         case 'Neumorphism':
-//             return `
-// **Style Name: Neumorphism (Soft UI)**
-// - Use a soft pastel background, high-contrast accent colors for functional elements e.g. navy, coral, or bright blue. Avoid monochrome UIs
-// - Light shadow (top-left) and dark shadow (bottom-right) to simulate extrusion or embedding, Keep shadows subtle but visible to prevent a washed-out look.
-// - Avoid excessive transparency in text — keep readability high.
-// - Integrate glassmorphism subtly`;
+        //         case 'Neumorphism':
+        //             return `
+        // **Style Name: Neumorphism (Soft UI)**
+        // - Use a soft pastel background, high-contrast accent colors for functional elements e.g. navy, coral, or bright blue. Avoid monochrome UIs
+        // - Light shadow (top-left) and dark shadow (bottom-right) to simulate extrusion or embedding, Keep shadows subtle but visible to prevent a washed-out look.
+        // - Avoid excessive transparency in text — keep readability high.
+        // - Integrate glassmorphism subtly`;
         case `Kid_Playful`:
             return `
 **Style Name: Kid Playful**

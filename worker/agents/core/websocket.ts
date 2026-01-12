@@ -233,7 +233,11 @@ export function handleWebSocketMessage(
                 // Handle design mode style update
                 logger.info('Received design mode style update', {
                     selector: parsedMessage.selector,
-                    changesCount: parsedMessage.changes?.length || 0
+                    filePath: parsedMessage.filePath,
+                    changesCount: parsedMessage.changes?.length || 0,
+                    changes: parsedMessage.changes?.map((c: { property: string; oldValue: string; newValue: string }) =>
+                        `${c.property}: ${c.oldValue} -> ${c.newValue}`
+                    )
                 });
 
                 import('../design-mode/design-mode-handler').then(({ handleDesignModeStyleUpdate }) => {

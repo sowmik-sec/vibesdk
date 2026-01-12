@@ -6,8 +6,16 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function getPreviewUrl(previewURL?: string, tunnelURL?: string): string {
-    // return import.meta.env.VITE_PREVIEW_MODE === 'tunnel' ? tunnelURL || previewURL || '' : previewURL || tunnelURL || '';
-    return previewURL || tunnelURL || '';
+  const url = previewURL || tunnelURL || '';
+  if (!url) return '';
+
+  // Force HTTP for localhost to avoid SSL errors in local development
+  // Chrome sometimes attempts to upgrade localhost subdomains to HTTPS
+  if (url.includes('localhost') && url.startsWith('https://')) {
+    return url.replace('https://', 'http://');
+  }
+
+  return url;
 }
 
 export function capitalizeFirstLetter(str: string) {

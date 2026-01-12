@@ -1,16 +1,16 @@
 import { modify, applyEdits } from 'jsonc-parser';
 
 export interface TemplateCustomizationOptions {
-    projectName: string;
-    commandsHistory: string[];
+  projectName: string;
+  commandsHistory: string[];
 }
 
 export interface CustomizedTemplateFiles {
-    'package.json': string;
-    'wrangler.jsonc'?: string;
-    '.bootstrap.js': string;
-    '.gitignore': string;
-    'index.html'?: string;
+  'package.json': string;
+  'wrangler.jsonc'?: string;
+  '.bootstrap.js': string;
+  '.gitignore': string;
+  'index.html'?: string;
 }
 
 /**
@@ -21,89 +21,87 @@ export interface CustomizedTemplateFiles {
  * - Updates .gitignore to exclude bootstrap marker
  */
 export function customizeTemplateFiles(
-    templateFiles: Record<string, string>,
-    options: TemplateCustomizationOptions
+  templateFiles: Record<string, string>,
+  options: TemplateCustomizationOptions
 ): Partial<CustomizedTemplateFiles> {
-    const customized: Partial<CustomizedTemplateFiles> = {};
+  const customized: Partial<CustomizedTemplateFiles> = {};
 
-    // 1. Customize package.json
-    if (templateFiles['package.json']) {
-        customized['package.json'] = customizePackageJson(
-            templateFiles['package.json'],
-            options.projectName
-        );
-    }
-
-    // 2. Customize wrangler.jsonc
-    if (templateFiles['wrangler.jsonc']) {
-        customized['wrangler.jsonc'] = customizeWranglerJsonc(
-            templateFiles['wrangler.jsonc'],
-            options.projectName
-        );
-    }
-
-    // 3. Generate bootstrap script
-    customized['.bootstrap.js'] = generateBootstrapScript(
-        options.projectName,
-        options.commandsHistory
+  // 1. Customize package.json
+  if (templateFiles['package.json']) {
+    customized['package.json'] = customizePackageJson(
+      templateFiles['package.json'],
+      options.projectName
     );
+  }
 
-    // 4. Update .gitignore
-    customized['.gitignore'] = updateGitignore(
-        templateFiles['.gitignore'] || ''
+  // 2. Customize wrangler.jsonc
+  if (templateFiles['wrangler.jsonc']) {
+    customized['wrangler.jsonc'] = customizeWranglerJsonc(
+      templateFiles['wrangler.jsonc'],
+      options.projectName
     );
+  }
 
-    // 5. Inject design mode script using react-grab for source location detection
-    if (templateFiles['index.html']) {
-        try {
-            customized['index.html'] = injectDesignModeScript(templateFiles['index.html']);
-        } catch (error) {
-            console.warn('Failed to inject design mode script:', error);
-        }
+  // 3. Generate bootstrap script
+  customized['.bootstrap.js'] = generateBootstrapScript(
+    options.projectName,
+    options.commandsHistory
+  );
+
+  // 4. Update .gitignore
+  customized['.gitignore'] = updateGitignore(
+    templateFiles['.gitignore'] || ''
+  );
+
+  // 5. Inject design mode script using react-grab for source location detection
+  if (templateFiles['index.html']) {
+    try {
+      customized['index.html'] = injectDesignModeScript(templateFiles['index.html']);
+    } catch (error) {
+      console.warn('Failed to inject design mode script:', error);
     }
+  }
 
-    return customized;
+  return customized;
 }
 
 /**
  * Update package.json with project name and prepare script
  */
 export function customizePackageJson(content: string, projectName: string): string {
-    const pkg = JSON.parse(content);
-    pkg.name = projectName;
-    pkg.scripts = pkg.scripts || {};
-    pkg.scripts.prepare = 'bun .bootstrap.js || true';
+  const pkg = JSON.parse(content);
+  pkg.name = projectName;
+  pkg.scripts = pkg.scripts || {};
+  pkg.scripts.prepare = 'bun .bootstrap.js || true';
 
-    // Add react-grab for design mode source location mapping
-    pkg.devDependencies = pkg.devDependencies || {};
-    pkg.devDependencies['react-grab'] = '^0.0.98';
+  // Note: react-grab is already included in the vite-reference template's devDependencies
 
-    return JSON.stringify(pkg, null, 2);
+  return JSON.stringify(pkg, null, 2);
 }
 
 /**
  * Update wrangler.jsonc with project name (preserves comments)
  */
 function customizeWranglerJsonc(content: string, projectName: string): string {
-    const edits = modify(content, ['name'], projectName, {
-        formattingOptions: {
-            tabSize: 2,
-            insertSpaces: true,
-            eol: '\n'
-        }
-    });
-    return applyEdits(content, edits);
+  const edits = modify(content, ['name'], projectName, {
+    formattingOptions: {
+      tabSize: 2,
+      insertSpaces: true,
+      eol: '\n'
+    }
+  });
+  return applyEdits(content, edits);
 }
 
 /**
  * Generate bootstrap script with proper command escaping
  */
 export function generateBootstrapScript(projectName: string, commands: string[]): string {
-    // Escape strings for safe embedding in JavaScript
-    const safeProjectName = JSON.stringify(projectName);
-    const safeCommands = JSON.stringify(commands, null, 4);
+  // Escape strings for safe embedding in JavaScript
+  const safeProjectName = JSON.stringify(projectName);
+  const safeCommands = JSON.stringify(commands, null, 4);
 
-    return `#!/usr/bin/env bun
+  return `#!/usr/bin/env bun
 /**
  * Auto-generated bootstrap script
  * Runs once after git clone to setup project correctly
@@ -218,47 +216,56 @@ function runSetupCommands() {
  * Update .gitignore to exclude bootstrap marker
  */
 function updateGitignore(content: string): string {
-    if (content.includes('.bootstrap-complete')) {
-        return content;
-    }
-    return content + '\n# Bootstrap marker\n.bootstrap-complete\n';
+  if (content.includes('.bootstrap-complete')) {
+    return content;
+  }
+  return content + '\n# Bootstrap marker\n.bootstrap-complete\n';
 }
 
 /**
  * Generate project name from blueprint or query
  */
 export function generateProjectName(
-    projectName: string,
-    uniqueSuffix: string,
-    maxPrefixLength: number = 20
+  projectName: string,
+  uniqueSuffix: string,
+  maxPrefixLength: number = 20
 ): string {
-    let prefix = projectName
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '-');
+  let prefix = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-');
 
-    prefix = prefix.slice(0, maxPrefixLength);
-    return `${prefix}-${uniqueSuffix}`.toLowerCase();
+  prefix = prefix.slice(0, maxPrefixLength);
+  return `${prefix}-${uniqueSuffix}`.toLowerCase();
 }
 
 /**
  * Inject design mode script into index.html for live element selection
  * Uses react-grab library for accurate React fiber source location extraction
+ * Note: react-grab is imported in index.html via import.meta.env.DEV check
  */
 function injectDesignModeScript(html: string): string {
-    // Using ES module import for react-grab (Vite-compatible)
-    // react-grab provides: getStack() for source locations, init() for custom callbacks
-    const designModeScript = `
+  const designModeScript = `
 <!-- VibeSDK Design Mode Integration -->
 <script type="module">
 (async function() {
+  // Prevent double initialization (request-handler.ts also injects a script)
+  if (window.__vibesdk_design_mode_initialized) return;
+  window.__vibesdk_design_mode_initialized = true;
+  
   const PREFIX = "vibesdk_design_mode";
   let isActive = false;
   let selectedElement = null;
   let highlightOverlay = null;
   let selectionOverlay = null;
   
-  // Import react-grab for source location detection
-  const { getStack, init } = await import("react-grab/core");
+  // Wait for react-grab to be available (it's imported in index.html)
+  let getStack;
+  try {
+    const grabModule = await import("react-grab/core");
+    getStack = grabModule.getStack;
+  } catch (e) {
+    console.warn("[VibeSDK] react-grab not available:", e.message);
+  }
   
   // Helper: Generate CSS selector
   function genSelector(el) {
@@ -298,57 +305,32 @@ function injectDesignModeScript(html: string): string {
     };
   }
   
-  // Fallback: Manual React Fiber traversal for source location
-  function getFiberSource(el) {
-    if (!el) return null;
-    const keys = Object.keys(el);
-    for (let i = 0; i < keys.length; i++) {
-      if (keys[i].startsWith("__reactFiber$") || keys[i].startsWith("__reactInternalInstance$")) {
-        let fiber = el[keys[i]];
-        while (fiber) {
-          if (fiber._debugSource) {
-            const src = fiber._debugSource;
-            let filePath = src.fileName || "";
-            // Normalize path: /workspace/i-xxx/src/... -> src/...
-            const match = filePath.match(/\\/(?:workspace\\/[^\\/]+|app)\\/(.+)/);
-            if (match) filePath = match[1];
-            console.log("[VibeSDK] Fiber source found:", { original: src.fileName, normalized: filePath });
-            return { filePath, lineNumber: src.lineNumber || 0, columnNumber: src.columnNumber || 0 };
-          }
-          fiber = fiber.return || fiber._debugOwner;
-        }
-        break;
-      }
-    }
-    return null;
-  }
-  
-  // Helper: Extract element data with source location (react-grab + fallback)
+  // Helper: Extract element data with source location using react-grab
   async function extractData(el) {
     if (!el) return null;
     const r = el.getBoundingClientRect();
     const cn = (el.className && typeof el.className === "string") ? el.className : "";
     
-    // Try react-grab first, then fallback to manual fiber traversal
+    // Use react-grab for source location detection
     let sourceLocation = null;
-    try {
-      const stack = await getStack(el);
-      if (stack && stack.length > 0 && stack[0].source) {
-        let filePath = stack[0].source.fileName || "";
-        // Normalize path
-        const match = filePath.match(/\\/(?:workspace\\/[^\\/]+|app)\\/(.+)/);
-        if (match) filePath = match[1];
-        sourceLocation = { filePath, lineNumber: stack[0].source.lineNumber || 0, columnNumber: stack[0].source.columnNumber || 0 };
-        console.log("[VibeSDK] react-grab source:", sourceLocation);
+    if (getStack) {
+      try {
+        const stack = await getStack(el);
+        if (stack && stack.length > 0 && stack[0].source) {
+          let filePath = stack[0].source.fileName || "";
+          // Normalize path: /workspace/i-xxx/src/... -> src/...
+          const match = filePath.match(/\\/(?:workspace\\/[^\\/]+|app)\\/(.+)/);
+          if (match) filePath = match[1];
+          sourceLocation = { 
+            filePath, 
+            lineNumber: stack[0].source.lineNumber || 0, 
+            columnNumber: stack[0].source.columnNumber || 0 
+          };
+          console.log("[VibeSDK] react-grab source:", sourceLocation);
+        }
+      } catch (e) {
+        console.warn("[VibeSDK] react-grab getStack failed:", e.message);
       }
-    } catch (e) {
-      console.warn("[VibeSDK] react-grab getStack failed:", e.message);
-    }
-    
-    // Fallback to manual fiber traversal if react-grab didn't work
-    if (!sourceLocation || !sourceLocation.filePath) {
-      console.log("[VibeSDK] Using fiber fallback...");
-      sourceLocation = getFiberSource(el);
     }
     
     if (sourceLocation) {
@@ -426,20 +408,36 @@ function injectDesignModeScript(html: string): string {
     window.parent.postMessage({ prefix: PREFIX, type: "design_mode_element_selected", element: data }, "*");
   }
   
+  // Helper: Convert camelCase to kebab-case for CSS properties
+  function toKebabCase(str) {
+    return str.replace(/([A-Z])/g, '-$1').toLowerCase();
+  }
+  
   function applyPreview(styles) {
     const el = selectedElement || window.__vibesdk_selected;
-    if (!el) return;
+    console.log("[VibeSDK] applyPreview called", { hasElement: !!el, styles });
+    if (!el) {
+      console.warn("[VibeSDK] applyPreview: No element to apply styles to!");
+      return;
+    }
     if (!el.__orig) el.__orig = {};
     for (const p in styles) {
-      if (!(p in el.__orig)) el.__orig[p] = el.style[p] || "";
-      el.style.setProperty(p, styles[p], "important");
+      const kebabProp = toKebabCase(p);
+      if (!(p in el.__orig)) el.__orig[p] = el.style.getPropertyValue(kebabProp) || "";
+      console.log("[VibeSDK] Setting style:", kebabProp, "=", styles[p]);
+      el.style.setProperty(kebabProp, styles[p], "important");
     }
+    console.log("[VibeSDK] applyPreview complete, element styles:", el.style.cssText);
   }
   
   function clearPreview() {
     const el = selectedElement || window.__vibesdk_selected;
+    console.log("[VibeSDK] clearPreview called", { hasElement: !!el, hasOrig: !!(el && el.__orig) });
     if (el && el.__orig) {
-      for (const p in el.__orig) el.style[p] = el.__orig[p];
+      for (const p in el.__orig) {
+        const kebabProp = toKebabCase(p);
+        el.style.setProperty(kebabProp, el.__orig[p]);
+      }
       delete el.__orig;
     }
   }
@@ -471,9 +469,13 @@ function injectDesignModeScript(html: string): string {
   window.addEventListener("message", function(e) {
     const d = e.data;
     if (!d || d.prefix !== PREFIX) return;
+    console.log("[VibeSDK] Message received:", d.type, d);
     if (d.type === "design_mode_enable") activate();
     else if (d.type === "design_mode_disable") deactivate();
-    else if (d.type === "design_mode_preview_style") applyPreview(d.styles);
+    else if (d.type === "design_mode_preview_style") {
+      console.log("[VibeSDK] Received preview_style:", d.styles);
+      applyPreview(d.styles);
+    }
     else if (d.type === "design_mode_clear_preview") clearPreview();
   });
   
@@ -483,11 +485,11 @@ function injectDesignModeScript(html: string): string {
 })();
 </script>`;
 
-    // Inject before </head> or </body>
-    if (html.includes('</head>')) {
-        return html.replace('</head>', designModeScript + '\n</head>');
-    } else if (html.includes('</body>')) {
-        return html.replace('</body>', designModeScript + '\n</body>');
-    }
-    return html + designModeScript;
+  // Inject before </head> or </body>
+  if (html.includes('</head>')) {
+    return html.replace('</head>', designModeScript + '\n</head>');
+  } else if (html.includes('</body>')) {
+    return html.replace('</body>', designModeScript + '\n</body>');
+  }
+  return html + designModeScript;
 }
