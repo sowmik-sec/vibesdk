@@ -127,6 +127,9 @@ function getDesignModeScript(): string {
         'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
         'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
         'border', 'borderWidth', 'borderColor', 'borderStyle', 'borderRadius',
+        'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+        'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+        'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomLeftRadius', 'borderBottomRightRadius',
         'width', 'height', 'display', 'flexDirection', 'justifyContent', 'alignItems', 'gap',
         'boxShadow', 'opacity'
     ];
@@ -203,20 +206,78 @@ function getDesignModeScript(): string {
         return styles;
     }
     
+    // Extract React Fiber source location for an element
+    // This traverses React internals to find _debugSource which contains file/line info
+    function getFiberSource(el) {
+        if (!el) return null;
+        try {
+            const keys = Object.keys(el);
+            for (let i = 0; i < keys.length; i++) {
+                const key = keys[i];
+                if (key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')) {
+                    let fiber = el[key];
+                    // Traverse up the fiber tree looking for _debugSource
+                    while (fiber) {
+                        if (fiber._debugSource) {
+                            const src = fiber._debugSource;
+                            let filePath = src.fileName || '';
+                            
+                            // Normalize container paths:
+                            // /workspace/i-xxx-uuid/src/... -> src/...
+                            // /app/src/... -> src/...
+                            if (filePath.includes('/workspace/')) {
+                                const parts = filePath.split('/');
+                                const wsIdx = parts.indexOf('workspace');
+                                if (wsIdx >= 0 && wsIdx + 2 < parts.length) {
+                                    filePath = parts.slice(wsIdx + 2).join('/');
+                                }
+                            } else if (filePath.startsWith('/app/')) {
+                                filePath = filePath.substring(5);
+                            } else if (filePath.startsWith('/src/')) {
+                                filePath = filePath.substring(1);
+                            }
+                            
+                            console.log('[VibeSDK] Fiber source found:', { original: src.fileName, normalized: filePath, line: src.lineNumber });
+                            return {
+                                filePath: filePath,
+                                lineNumber: src.lineNumber || 0,
+                                columnNumber: src.columnNumber || 0
+                            };
+                        }
+                        // Move up through return (parent) or _debugOwner
+                        fiber = fiber.return || fiber._debugOwner;
+                    }
+                    break;
+                }
+            }
+        } catch (e) {
+            console.warn('[VibeSDK] Error extracting fiber source:', e);
+        }
+        return null;
+    }
+    
+
     function extractElementData(el) {
         const r = el.getBoundingClientRect();
+        let sourceLocation = null;
+        try {
+            sourceLocation = getFiberSource(el);
+        } catch (err) {
+            console.warn('[VibeSDK] getFiberSource error:', err);
+        }
         return {
             tagName: el.tagName.toLowerCase(), id: el.id || null, className: el.className || '',
             selector: generateSelector(el), textContent: (el.textContent||'').slice(0,200),
             boundingRect: {top:r.top,left:r.left,width:r.width,height:r.height},
             computedStyles: extractStyles(el),
             tailwindClasses: (el.className && typeof el.className === 'string') ? el.className.trim().split(/\\s+/).filter(c => c) : [],
-            dataAttributes: {}, sourceLocation: null,
+            dataAttributes: {}, sourceLocation: sourceLocation,
             parentSelector: el.parentElement ? generateSelector(el.parentElement) : null,
             childCount: el.children.length
         };
     }
     
+
     function handleMouseMove(e) {
         if (!isDesignModeActive) return;
         const t = e.target;
@@ -243,15 +304,77 @@ function getDesignModeScript(): string {
     function handleKeyDown(e) { if (e.key === 'Escape' && selectedElement) { selectedElement = null; hideOverlay(selectionOverlay); sendMessage({ type: 'design_mode_element_deselected' }); } }
     function handleScroll() { if (selectedElement && selectionOverlay) positionOverlay(selectionOverlay, selectedElement.getBoundingClientRect()); if (hoveredElement && highlightOverlay) positionOverlay(highlightOverlay, hoveredElement.getBoundingClientRect()); }
     
-    const previewStyles = new Map();
-    function applyPreviewStyle(sel, styles) {
-        clearPreviewStyle(sel);
-        const css = Object.entries(styles).map(([p,v]) => p.replace(/([A-Z])/g,'-$1').toLowerCase()+':'+v+' !important').join(';');
-        const s = document.createElement('style'); s.id = '__vibesdk_preview_'+sel.replace(/[^a-zA-Z0-9]/g,'_'); s.textContent = sel+'{'+css+'}';
-        document.head.appendChild(s); previewStyles.set(sel, s);
+    // Helper function to convert camelCase to kebab-case
+    function toKebabCase(str) {
+        return str.replace(/([A-Z])/g, '-$1').toLowerCase();
     }
-    function clearPreviewStyle(sel) { const e = previewStyles.get(sel); if (e) { e.remove(); previewStyles.delete(sel); } }
-    function clearAllPreviewStyles() { previewStyles.forEach(e => e.remove()); previewStyles.clear(); }
+    
+    // Apply preview styles DIRECTLY to the selected element (instant feedback)
+    function applyPreviewStyle(sel, styles) {
+        // Try to use the stored selectedElement first (instant)
+        // Fall back to querySelector if element not stored
+        const el = selectedElement || document.querySelector(sel);
+        
+        console.log('[VibeSDK] applyPreviewStyle called', { 
+            selector: sel, 
+            styles: styles,
+            hasSelectedElement: !!selectedElement,
+            usingQuerySelector: !selectedElement && !!el,
+            elementFound: !!el
+        });
+        
+        if (!el) {
+            console.warn('[VibeSDK] applyPreviewStyle: No element found for selector:', sel);
+            return;
+        }
+        
+        // Store original styles for restoration
+        if (!el.__vibesdk_orig) {
+            el.__vibesdk_orig = {};
+        }
+        
+        // Apply each style directly to the element
+        for (const prop in styles) {
+            const kebabProp = toKebabCase(prop);
+            const value = styles[prop];
+            
+            // Store original value if not already stored
+            if (!(prop in el.__vibesdk_orig)) {
+                el.__vibesdk_orig[prop] = el.style.getPropertyValue(kebabProp) || '';
+            }
+            
+            console.log('[VibeSDK] Setting style:', kebabProp, '=', value);
+            el.style.setProperty(kebabProp, value, 'important');
+        }
+        
+        console.log('[VibeSDK] applyPreviewStyle complete, element style:', el.style.cssText);
+    }
+    
+    // Clear preview styles and restore originals
+    function clearPreviewStyle(sel) {
+        const el = selectedElement || document.querySelector(sel);
+        console.log('[VibeSDK] clearPreviewStyle called', { selector: sel, hasElement: !!el });
+        
+        if (el && el.__vibesdk_orig) {
+            for (const prop in el.__vibesdk_orig) {
+                const kebabProp = toKebabCase(prop);
+                const originalValue = el.__vibesdk_orig[prop];
+                if (originalValue) {
+                    el.style.setProperty(kebabProp, originalValue);
+                } else {
+                    el.style.removeProperty(kebabProp);
+                }
+            }
+            delete el.__vibesdk_orig;
+        }
+    }
+    
+    function clearAllPreviewStyles() {
+        // Clear from selected element if exists
+        if (selectedElement && selectedElement.__vibesdk_orig) {
+            clearPreviewStyle(null);
+        }
+    }
     
     function enableDesignMode() {
         if (isDesignModeActive) return;
@@ -280,9 +403,14 @@ function getDesignModeScript(): string {
     
     window.addEventListener('message', function(e) {
         const d = e.data; if (!d || d.prefix !== DESIGN_MODE_MESSAGE_PREFIX) return;
+        console.log('[VibeSDK] Message received:', d.type, d);
         if (d.type === 'design_mode_enable') enableDesignMode();
         else if (d.type === 'design_mode_disable') disableDesignMode();
-        else if (d.type === 'design_mode_preview_style' && d.selector && d.styles) applyPreviewStyle(d.selector, d.styles);
+        else if (d.type === 'design_mode_preview_style') {
+            console.log('[VibeSDK] Received preview_style:', { selector: d.selector, styles: d.styles });
+            if (d.selector && d.styles) applyPreviewStyle(d.selector, d.styles);
+            else console.warn('[VibeSDK] preview_style missing selector or styles!', d);
+        }
         else if (d.type === 'design_mode_clear_preview') { if (d.selector) clearPreviewStyle(d.selector); else clearAllPreviewStyles(); }
         else if (d.type === 'design_mode_clear_selection') { selectedElement = null; hideOverlay(selectionOverlay); }
     });
@@ -294,6 +422,7 @@ function getDesignModeScript(): string {
 }
 
 function injectDesignModeScript(html: string): string {
+
   const script = getDesignModeScript();
 
   // Inject after <head> tag if present

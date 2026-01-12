@@ -17,8 +17,8 @@ import { validateAndCleanBootstrapCommands } from 'worker/agents/utils/common';
 import { DeploymentTarget } from '../../core/types';
 import { BaseProjectState } from '../../core/state';
 
-const PER_ATTEMPT_TIMEOUT_MS = 180000;  // 3 minutes per individual attempt
-const MASTER_DEPLOYMENT_TIMEOUT_MS = 300000;  // 5 minutes total
+const PER_ATTEMPT_TIMEOUT_MS = 300000;  // 5 minutes per individual attempt
+const MASTER_DEPLOYMENT_TIMEOUT_MS = 600000;  // 10 minutes total
 const HEALTH_CHECK_INTERVAL_MS = 30000;
 
 /**
@@ -296,7 +296,8 @@ export class DeploymentManager extends BaseAgentService<BaseProjectState> implem
         redeploy: boolean = false,
         commitMessage?: string,
         clearLogs: boolean = false,
-        callbacks?: SandboxDeploymentCallbacks
+        callbacks?: SandboxDeploymentCallbacks,
+        optimistic: boolean = false
     ): Promise<PreviewType | null> {
         const logger = this.getLog();
 
@@ -318,7 +319,8 @@ export class DeploymentManager extends BaseAgentService<BaseProjectState> implem
             redeploy,
             commitMessage,
             clearLogs,
-            callbacks
+            callbacks,
+            optimistic
         );
 
         try {
@@ -350,7 +352,8 @@ export class DeploymentManager extends BaseAgentService<BaseProjectState> implem
         redeploy: boolean,
         commitMessage: string | undefined,
         clearLogs: boolean,
-        callbacks?: SandboxDeploymentCallbacks
+        callbacks?: SandboxDeploymentCallbacks,
+        optimistic: boolean = false
     ): Promise<PreviewType> {
         const logger = this.getLog();
         let attempt = 0;
@@ -372,7 +375,8 @@ export class DeploymentManager extends BaseAgentService<BaseProjectState> implem
                     files,
                     redeploy,
                     commitMessage,
-                    clearLogs
+                    clearLogs,
+                    optimistic
                 });
 
                 const result = await this.withTimeout(
@@ -452,14 +456,43 @@ export class DeploymentManager extends BaseAgentService<BaseProjectState> implem
     /**
      * Deploy files to sandbox instance (core deployment)
      */
-    private async deploy(params: DeploymentParams): Promise<DeploymentResult> {
-        const { files, redeploy, commitMessage, clearLogs } = params;
+    private async deploy(params: DeploymentParams & { optimistic?: boolean }): Promise<DeploymentResult> {
+        const { files, redeploy, commitMessage, clearLogs, optimistic } = params;
         const logger = this.getLog();
 
         logger.info("Deploying code to sandbox service");
 
         // Ensure instance exists and is healthy
-        const instanceResult = await this.ensureInstance(redeploy);
+        // Ensure instance exists and is healthy
+        // OPTIMISTIC MODE: If optimistic=true and NOT redeploying, we skip the strict health check
+        // and try to write directly. If writing fails, we fall back to full ensureInstance.
+        let instanceResult: DeploymentResult;
+        let usedOptimisticPath = false;
+
+        const state = this.getState();
+        if (optimistic && !redeploy && state.sandboxInstanceId) {
+            logger.info('Optimistic deployment: Validating instance existence without health check');
+            // We still need the URL from the status if not cached, but lets assume we have what is in state?
+            // Actually ensureInstance helps get the URL.
+            // But if we just want to write files, we just need the ID.
+
+            // Check if we have an ID
+            if (state.sandboxInstanceId) {
+                usedOptimisticPath = true;
+                // Mock result based on current state
+                instanceResult = {
+                    sandboxInstanceId: state.sandboxInstanceId,
+                    previewURL: 'optimistic', // Only needed if we return it
+                    tunnelURL: 'optimistic',
+                    redeployed: false
+                };
+            } else {
+                instanceResult = await this.ensureInstance(redeploy);
+            }
+        } else {
+            instanceResult = await this.ensureInstance(redeploy);
+        }
+
         const { sandboxInstanceId, previewURL, tunnelURL, redeployed } = instanceResult;
 
         // Determine which files to deploy
@@ -474,8 +507,29 @@ export class DeploymentManager extends BaseAgentService<BaseProjectState> implem
             );
 
             if (!writeResponse || !writeResponse.success) {
-                logger.error(`File writing failed. Error: ${writeResponse?.error}`);
-                throw new Error(`File writing failed. Error: ${writeResponse?.error}`);
+                const errorMsg = `File writing failed. Error: ${writeResponse?.error}`;
+                logger.error(errorMsg);
+
+                // If we used optimistic path and failed, this might mean the container IS dead.
+                // So we should try to recover by doing a full ensureInstance (which will redeploy if needed)
+                if (usedOptimisticPath) {
+                    logger.warn('Optimistic write failed, falling back to full instance check/redeploy');
+                    // Retry with full check
+                    const retryInstanceResult = await this.ensureInstance(false); // Check properly
+                    // Recalculate file list just in case (though likely same)
+                    // Then try write again
+                    const retryWriteResponse = await this.getClient().writeFiles(
+                        retryInstanceResult.sandboxInstanceId,
+                        filesToWrite,
+                        commitMessage
+                    );
+                    if (!retryWriteResponse || !retryWriteResponse.success) {
+                        throw new Error(`File writing failed after retry. Error: ${retryWriteResponse?.error}`);
+                    }
+                    logger.info('Files written to sandbox instance (after retry)', { instanceId: retryInstanceResult.sandboxInstanceId });
+                } else {
+                    throw new Error(errorMsg);
+                }
             }
 
             logger.info('Files written to sandbox instance', { instanceId: sandboxInstanceId, files: filesToWrite.map(f => f.filePath) });

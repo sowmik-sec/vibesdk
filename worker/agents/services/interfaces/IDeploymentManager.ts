@@ -90,7 +90,8 @@ export interface IDeploymentManager {
         redeploy?: boolean,
         commitMessage?: string,
         clearLogs?: boolean,
-        callbacks?: SandboxDeploymentCallbacks
+        callbacks?: SandboxDeploymentCallbacks,
+        optimistic?: boolean
     ): Promise<PreviewType | null>;
 
     /**
