@@ -84,7 +84,7 @@ export async function handleDesignModeStyleUpdate(
     request: DesignModeStyleUpdateRequest,
     logger: StructuredLogger
 ): Promise<void> {
-    const { selector, filePath, changes, textContent, sourceLocation } = request;
+    const { selector, filePath, changes, textContent, sourceLocation, skipDeploy } = request;
 
     console.log('[DESIGN_MODE] === STYLE UPDATE REQUEST RECEIVED ===');
     console.log('[DESIGN_MODE] Selector:', selector);
@@ -141,7 +141,8 @@ export async function handleDesignModeStyleUpdate(
             changes,
             textContent,
             sourceLocation,
-            logger
+            logger,
+            skipDeploy
         );
 
         sendStyleUpdateResponse(connection, {
@@ -324,7 +325,8 @@ async function applyStyleChanges(
     changes: DesignModeStyleChange[],
     textContent: string | undefined,
     sourceLocation: { filePath: string; lineNumber: number; columnNumber?: number } | undefined,
-    logger: StructuredLogger
+    logger: StructuredLogger,
+    skipDeploy?: boolean
 ): Promise<StyleUpdateResult> {
     console.log('[DESIGN_MODE] applyStyleChanges (deterministic) called:', {
         filePath,
@@ -398,7 +400,7 @@ async function applyStyleChanges(
         // This accesses the internal fileManager through the agent interface
         const saveFiles = (agent as any).fileManager?.saveGeneratedFile;
         if (saveFiles) {
-            await (agent as any).fileManager.saveGeneratedFile(modifiedFile);
+            await (agent as any).fileManager.saveGeneratedFile(modifiedFile, `style: design mode update to ${filePath}`);
         } else {
             // Fallback: save through regenerateFileByPath with a simple diff message
             console.log('[DESIGN_MODE] FileManager not accessible, using fallback save');
@@ -406,7 +408,7 @@ async function applyStyleChanges(
 
         // 7. Deploy to sandbox to update the preview
         const deployToSandbox = (agent as any).deployToSandbox;
-        if (deployToSandbox) {
+        if (deployToSandbox && !skipDeploy) {
             console.log('[DESIGN_MODE] Deploying updated file to sandbox (Optimistic)');
             // Pass optimistic: true to skip strict health check for faster updates
             // We cast to any because the interface might not update in runtime immediately or generic type issues
@@ -418,6 +420,8 @@ async function applyStyleChanges(
                 undefined, // callbacks
                 true // optimistic
             );
+        } else if (skipDeploy) {
+            console.log('[DESIGN_MODE] Skipping deployment as requested (saved only)');
         }
 
         logger.info('Style changes applied successfully', {

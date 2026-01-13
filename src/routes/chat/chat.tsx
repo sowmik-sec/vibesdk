@@ -705,6 +705,8 @@ export default function Chat() {
 								canRedo={designMode.canRedo}
 								onClose={() => setSidebarMode('chat')}
 								isSyncing={designMode.isSyncing}
+								hasPendingChanges={designMode.hasPendingChanges}
+								onRefreshPreview={designMode.refreshPreview}
 							/>
 						</div>
 					) : (

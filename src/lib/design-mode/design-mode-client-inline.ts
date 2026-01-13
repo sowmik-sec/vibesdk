@@ -174,61 +174,45 @@ export function getDesignModeClientScript(): string {
     // This traverses React internals to find _debugSource which contains file/line info
     function getFiberSource(element) {
         if (!element) return null;
-        
-        function normalizePath(filePath) {
-            if (!filePath) return '';
-            // Normalize container paths:
-            // /workspace/i-xxx-uuid/src/... -> src/...
-            // /app/src/... -> src/...
-            if (filePath.includes('/workspace/')) {
-                const parts = filePath.split('/');
-                const wsIdx = parts.indexOf('workspace');
-                if (wsIdx >= 0 && wsIdx + 2 < parts.length) {
-                    filePath = parts.slice(wsIdx + 2).join('/');
-                }
-            } else if (filePath.startsWith('/app/')) {
-                filePath = filePath.substring(5);
-            } else if (filePath.startsWith('/src/')) {
-                filePath = filePath.substring(1);
-            }
-            return filePath;
-        }
-
         try {
             const keys = Object.keys(element);
             for (let i = 0; i < keys.length; i++) {
                 const key = keys[i];
                 if (key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')) {
                     let fiber = element[key];
-                    
-                    // Strategy: Traverse up the fiber tree looking for a user component with source
-                    // 1. Check current fiber
-                    // 2. Check return (parent) chain
-                    // 3. Check _debugOwner (conceptual owner)
-                    
-                    let curr = fiber;
-                    while (curr) {
-                        // Check if this fiber has source info
-                        if (curr._debugSource) {
+                    // Traverse up the fiber tree looking for _debugSource
+                    while (fiber) {
+                        if (fiber._debugSource) {
+                            const src = fiber._debugSource;
+                            let filePath = src.fileName || '';
+                            
+                            // Normalize container paths:
+                            // /workspace/i-xxx-uuid/src/... -> src/...
+                            // /app/src/... -> src/...
+                            if (filePath.includes('/workspace/')) {
+                                const parts = filePath.split('/');
+                                const wsIdx = parts.indexOf('workspace');
+                                if (wsIdx >= 0 && wsIdx + 2 < parts.length) {
+                                    filePath = parts.slice(wsIdx + 2).join('/');
+                                }
+                            } else if (filePath.startsWith('/app/')) {
+                                filePath = filePath.substring(5);
+                            } else if (filePath.startsWith('/src/')) {
+                                filePath = filePath.substring(1);
+                            }
+                            
+                            console.log('[VibeSDK] Fiber source found:', { original: src.fileName, normalized: filePath, line: src.lineNumber });
                             return {
-                                fileName: normalizePath(curr._debugSource.fileName),
-                                lineNumber: curr._debugSource.lineNumber,
-                                columnNumber: curr._debugSource.columnNumber
+                                filePath: filePath,
+                                lineNumber: src.lineNumber || 0,
+                                columnNumber: src.columnNumber || 0
                             };
                         }
-                        
-                        // If not, check its debug owner (often points to the component that created this element)
-                        if (curr._debugOwner && curr._debugOwner._debugSource) {
-                             return {
-                                fileName: normalizePath(curr._debugOwner._debugSource.fileName),
-                                lineNumber: curr._debugOwner._debugSource.lineNumber,
-                                columnNumber: curr._debugOwner._debugSource.columnNumber
-                            };
-                        }
-                        
-                        // Move up the tree
-                        curr = curr.return;
+                        // Move up through return (parent) or _debugOwner
+                        fiber = fiber.return || fiber._debugOwner;
                     }
+                    break;
+                }
             }
         } catch (e) {
             console.warn('[VibeSDK] Error extracting fiber source:', e);

@@ -76,6 +76,10 @@ export interface UseDesignModeReturn {
     isSyncing: boolean;
     /** Last sync error if any */
     syncError: string | null;
+    /** Whether there are changes saved but not yet deployed */
+    hasPendingChanges: boolean;
+    /** Manually trigger a preview refresh (deploys pending changes) */
+    refreshPreview: () => Promise<void>;
 }
 
 // ============================================================================
@@ -91,6 +95,7 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
     const [hoveredElement, setHoveredElement] = useState<DesignModeElementData | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncError, setSyncError] = useState<string | null>(null);
+    const [hasPendingChanges, setHasPendingChanges] = useState(false);
 
     // History for undo/redo
     const [history, setHistory] = useState<DesignModeHistoryEntry[]>([]);
@@ -113,14 +118,19 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         console.log('[DesignMode] sendToIframe called', {
             message,
             hasIframe: !!iframe,
-            hasContentWindow: !!iframe?.contentWindow
+            hasContentWindow: !!iframe?.contentWindow,
+            iframeSrc: iframe?.src,
         });
         if (iframe?.contentWindow) {
-            iframe.contentWindow.postMessage(
-                { prefix: DESIGN_MODE_MESSAGE_PREFIX, ...message },
-                '*'
-            );
-            console.log('[DesignMode] Message posted to iframe');
+            try {
+                iframe.contentWindow.postMessage(
+                    { prefix: DESIGN_MODE_MESSAGE_PREFIX, ...message },
+                    '*'
+                );
+                console.log('[DesignMode] Message posted to iframe successfully');
+            } catch (error) {
+                console.error('[DesignMode] Error posting message to iframe:', error);
+            }
         } else {
             console.warn('[DesignMode] Cannot send to iframe - no contentWindow');
         }
@@ -140,6 +150,19 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 // Iframe is ready, enable design mode if it should be enabled
                 if (isEnabled) {
                     sendToIframe({ type: 'design_mode_enable' });
+                    
+                    // Re-apply any pending preview styles after iframe reloads
+                    if (selectedElement) {
+                        const pendingStyles = previewStylesRef.current.get(selectedElement.selector);
+                        if (pendingStyles && Object.keys(pendingStyles).length > 0) {
+                            console.log('[DesignMode] Re-applying preview styles after iframe ready:', pendingStyles);
+                            sendToIframe({
+                                type: 'design_mode_preview_style',
+                                selector: selectedElement.selector,
+                                styles: pendingStyles,
+                            });
+                        }
+                    }
                 }
                 break;
 
@@ -219,7 +242,7 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
     }, [isEnabled, enableDesignMode, disableDesignMode]);
 
     // ========================================================================
-    // Style Preview (Temporary Changes)
+    // Style Preview (PostMessage - Required for Cross-Origin Iframe)
     // ========================================================================
 
     const previewStyle = useCallback((property: string, value: string) => {
@@ -234,12 +257,12 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         existing[property] = value;
         previewStylesRef.current.set(selectedElement.selector, existing);
 
-        console.log('[useDesignMode] Sending preview to iframe', {
+        console.log('[useDesignMode] Sending preview to iframe via postMessage', {
             selector: selectedElement.selector,
             styles: existing
         });
 
-        // Send to iframe
+        // Send to iframe via postMessage (cross-origin safe)
         sendToIframe({
             type: 'design_mode_preview_style',
             selector: selectedElement.selector,
@@ -274,22 +297,19 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
             return;
         }
 
-        // IMMEDIATELY apply visual preview so user sees the change
-        const previewStylesForIframe: Record<string, string> = {};
+        // IMMEDIATELY apply visual preview via postMessage
+        const existingPreview = previewStylesRef.current.get(selectedElement.selector) || {};
         changes.forEach(({ property, value }) => {
-            previewStylesForIframe[property] = value;
+            existingPreview[property] = value;
         });
+        previewStylesRef.current.set(selectedElement.selector, existingPreview);
 
-        console.log('[useDesignMode] Applying immediate visual preview to iframe', {
-            selector: selectedElement.selector,
-            styles: previewStylesForIframe
-        });
-
-        // Send preview to iframe for immediate visual feedback
+        // Send preview to iframe for instant visual feedback
+        console.log('[useDesignMode] Sending preview via postMessage:', existingPreview);
         sendToIframe({
             type: 'design_mode_preview_style',
             selector: selectedElement.selector,
-            styles: previewStylesForIframe,
+            styles: existingPreview,
         });
 
         // If no websocket, just keep the visual preview (won't persist to code)
@@ -337,17 +357,12 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 type: 'design_mode_style_update',
                 selector: selectedElement.selector,
                 filePath: selectedElement.sourceLocation?.filePath,
-                sourceLocation: selectedElement.sourceLocation,
                 textContent: selectedElement.textContent,
                 changes: styleChanges,
+                skipDeploy: true, // Don't reload preview - keep inline styles visible
             };
 
-            // TEMPORARILY: Send immediately (no debounce) to debug persistence issue
-            console.log('[useDesignMode] Sending to WebSocket IMMEDIATELY:', {
-                payload: messagePayload,
-                sourceLocationSrc: selectedElement.sourceLocation,
-                payloadSourceLocation: messagePayload.sourceLocation
-            });
+            console.log('[useDesignMode] Sending to WebSocket with skipDeploy:', messagePayload);
 
             // Validate websocket is open (readyState 1 = OPEN)
             if (!websocket || websocket.readyState !== 1) {
@@ -362,6 +377,9 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
             // Send to backend via WebSocket
             websocket.send(JSON.stringify(messagePayload));
             console.log('[useDesignMode] WebSocket message sent successfully');
+
+            // Mark that we have pending changes (saved but not deployed)
+            setHasPendingChanges(true);
 
             // Notify file change
             if (selectedElement.sourceLocation?.filePath && onFileModified) {
@@ -507,6 +525,35 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
     }, [clearPreview]);
 
     // ========================================================================
+    // Refresh Preview (Manual Deploy)
+    // ========================================================================
+
+    const refreshPreview = useCallback(async () => {
+        if (!websocket) return;
+
+        console.log('[useDesignMode] Triggering manual preview refresh');
+        setIsSyncing(true);
+        setSyncError(null);
+
+        try {
+            // Send message to backend to trigger a fresh deploy
+            websocket.send(JSON.stringify({
+                type: 'design_mode_refresh_preview',
+            }));
+
+            // Clear pending changes flag
+            setHasPendingChanges(false);
+
+            console.log('[useDesignMode] Preview refresh requested');
+        } catch (error) {
+            console.error('[useDesignMode] Failed to refresh preview:', error);
+            setSyncError(error instanceof Error ? error.message : 'Failed to refresh preview');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [websocket]);
+
+    // ========================================================================
     // Keyboard Shortcuts
     // ========================================================================
 
@@ -571,6 +618,8 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         updateText,
         isSyncing,
         syncError,
+        hasPendingChanges,
+        refreshPreview,
     }), [
         isEnabled,
         toggleDesignMode,
@@ -592,5 +641,7 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         updateText,
         isSyncing,
         syncError,
+        hasPendingChanges,
+        refreshPreview,
     ]);
 }

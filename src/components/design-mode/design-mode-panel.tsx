@@ -46,6 +46,8 @@ export interface DesignModePanelProps {
     canRedo: boolean;
     onClose: () => void;
     isSyncing?: boolean;
+    hasPendingChanges?: boolean;
+    onRefreshPreview?: () => void;
 }
 
 interface SectionProps {
@@ -177,6 +179,8 @@ export function DesignModePanel({
     canRedo,
     onClose,
     isSyncing,
+    hasPendingChanges = false,
+    onRefreshPreview,
 }: DesignModePanelProps) {
     // Handle style changes with preview
     const handleStyleChange = useCallback((property: string, value: string, commit: boolean) => {
@@ -227,8 +231,25 @@ export function DesignModePanel({
                     {isSyncing && (
                         <span className="text-xs text-accent animate-pulse">Syncing...</span>
                     )}
+                    {hasPendingChanges && !isSyncing && (
+                        <span className="text-xs text-amber-500" title="Changes saved to code, click Refresh to see final result">
+                            ● Saved
+                        </span>
+                    )}
                 </div>
                 <div className="flex items-center gap-1">
+                    {hasPendingChanges && onRefreshPreview && (
+                        <Button
+                            onClick={onRefreshPreview}
+                            disabled={isSyncing}
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            title="Deploy changes and reload preview"
+                        >
+                            Refresh Preview
+                        </Button>
+                    )}
                     <button
                         onClick={onUndo}
                         disabled={!canUndo}
