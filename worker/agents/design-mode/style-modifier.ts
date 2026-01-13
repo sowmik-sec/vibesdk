@@ -219,6 +219,109 @@ function cssToTailwind(property: string, value: string): { class: string; prefix
             return { class: `${prefix}-[${value}]`, prefix };
         }
 
+        // Border width
+        case 'borderWidth':
+        case 'borderTopWidth':
+        case 'borderRightWidth':
+        case 'borderBottomWidth':
+        case 'borderLeftWidth': {
+            const prefix = property === 'borderWidth' ? 'border' :
+                property === 'borderTopWidth' ? 'border-t' :
+                    property === 'borderRightWidth' ? 'border-r' :
+                        property === 'borderBottomWidth' ? 'border-b' : 'border-l';
+            // Common border widths
+            if (normalizedValue === '0' || normalizedValue === '0px') {
+                return { class: `${prefix}-0`, prefix: prefix };
+            }
+            if (normalizedValue === '1px') {
+                return { class: prefix, prefix: prefix }; // border = 1px by default
+            }
+            if (normalizedValue === '2px') {
+                return { class: `${prefix}-2`, prefix: prefix };
+            }
+            if (normalizedValue === '4px') {
+                return { class: `${prefix}-4`, prefix: prefix };
+            }
+            if (normalizedValue === '8px') {
+                return { class: `${prefix}-8`, prefix: prefix };
+            }
+            return { class: `${prefix}-[${value}]`, prefix: prefix };
+        }
+
+        // Border color
+        case 'borderColor':
+        case 'borderTopColor':
+        case 'borderRightColor':
+        case 'borderBottomColor':
+        case 'borderLeftColor': {
+            const prefix = property === 'borderColor' ? 'border' :
+                property === 'borderTopColor' ? 'border-t' :
+                    property === 'borderRightColor' ? 'border-r' :
+                        property === 'borderBottomColor' ? 'border-b' : 'border-l';
+            const colorName = TAILWIND_COLORS[normalizedValue];
+            if (colorName) {
+                return { class: `${prefix}-${colorName}`, prefix: prefix };
+            }
+            return { class: `${prefix}-[${value}]`, prefix: prefix };
+        }
+
+        // Border radius
+        case 'borderRadius':
+        case 'borderTopLeftRadius':
+        case 'borderTopRightRadius':
+        case 'borderBottomLeftRadius':
+        case 'borderBottomRightRadius': {
+            const prefix = property === 'borderRadius' ? 'rounded' :
+                property === 'borderTopLeftRadius' ? 'rounded-tl' :
+                    property === 'borderTopRightRadius' ? 'rounded-tr' :
+                        property === 'borderBottomLeftRadius' ? 'rounded-bl' : 'rounded-br';
+            // Common radius values
+            if (normalizedValue === '0' || normalizedValue === '0px') {
+                return { class: `${prefix}-none`, prefix: prefix };
+            }
+            if (normalizedValue === '0.125rem' || normalizedValue === '2px') {
+                return { class: `${prefix}-sm`, prefix: prefix };
+            }
+            if (normalizedValue === '0.25rem' || normalizedValue === '4px') {
+                return { class: prefix, prefix: prefix };
+            }
+            if (normalizedValue === '0.375rem' || normalizedValue === '6px') {
+                return { class: `${prefix}-md`, prefix: prefix };
+            }
+            if (normalizedValue === '0.5rem' || normalizedValue === '8px') {
+                return { class: `${prefix}-lg`, prefix: prefix };
+            }
+            if (normalizedValue === '0.75rem' || normalizedValue === '12px') {
+                return { class: `${prefix}-xl`, prefix: prefix };
+            }
+            if (normalizedValue === '1rem' || normalizedValue === '16px') {
+                return { class: `${prefix}-2xl`, prefix: prefix };
+            }
+            if (normalizedValue === '1.5rem' || normalizedValue === '24px') {
+                return { class: `${prefix}-3xl`, prefix: prefix };
+            }
+            if (normalizedValue === '9999px' || normalizedValue === '50%') {
+                return { class: `${prefix}-full`, prefix: prefix };
+            }
+            return { class: `${prefix}-[${value}]`, prefix: prefix };
+        }
+
+        // Border style
+        case 'borderStyle': {
+            const styles: Record<string, string> = {
+                'solid': 'border-solid',
+                'dashed': 'border-dashed',
+                'dotted': 'border-dotted',
+                'double': 'border-double',
+                'none': 'border-none',
+            };
+            const styleClass = styles[normalizedValue];
+            if (styleClass) {
+                return { class: styleClass, prefix: 'border' };
+            }
+            return null;
+        }
+
         default:
             return null;
     }
@@ -256,6 +359,28 @@ function getExistingClassPattern(prefix: string): RegExp {
             return /mb-(\d+\.?\d*|\[.+?\])/g;
         case 'ml':
             return /ml-(\d+\.?\d*|\[.+?\])/g;
+        // Border width
+        case 'border':
+            return /\bborder(-\d+)?(?!-[trblxy])\b|\bborder-\[.+?\]/g;
+        case 'border-t':
+            return /border-t(-\d+)?|\border-t-\[.+?\]/g;
+        case 'border-r':
+            return /border-r(-\d+)?|\border-r-\[.+?\]/g;
+        case 'border-b':
+            return /border-b(-\d+)?|\border-b-\[.+?\]/g;
+        case 'border-l':
+            return /border-l(-\d+)?|\border-l-\[.+?\]/g;
+        // Border radius
+        case 'rounded':
+            return /rounded(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-\[.+?\]/g;
+        case 'rounded-tl':
+            return /rounded-tl(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-tl-\[.+?\]/g;
+        case 'rounded-tr':
+            return /rounded-tr(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-tr-\[.+?\]/g;
+        case 'rounded-bl':
+            return /rounded-bl(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-bl-\[.+?\]/g;
+        case 'rounded-br':
+            return /rounded-br(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-br-\[.+?\]/g;
         default:
             return new RegExp(`${prefix}-[\\w\\[\\].]+`, 'g');
     }
@@ -495,11 +620,104 @@ function findElementBySelector(source: string, selector: string): ElementLocatio
     return null;
 }
 
+/**
+ * Find element by its className (from DOM) in source code.
+ * Searches for elements that contain the same Tailwind classes.
+ */
+function findElementByClassName(source: string, className: string): ElementLocationResult | null {
+    if (!className || className.length === 0) return null;
+
+    // Split className into individual classes
+    const classes = className.split(/\s+/).filter(c => c.length > 0);
+
+    // First, look for highly specific/unique classes (highest priority)
+    const highPriorityClasses = classes.filter(c =>
+        c.includes('gradient') ||
+        c.includes('display') ||
+        c.includes('hero') ||
+        c.includes('heading') ||
+        c.includes('title') ||
+        c.includes('tabular') || // e.g., tabular-nums
+        c.includes('balance') || // e.g., text-balance
+        (c.startsWith('font-') && !['font-normal', 'font-medium', 'font-bold', 'font-semibold'].includes(c))
+    );
+
+    // Filter to get unique/specific classes (not common utilities)
+    const genericPrefixes = ['flex', 'grid', 'block', 'hidden', 'relative', 'absolute', 'w-', 'h-', 'p-', 'm-', 'items-', 'justify-', 'gap-', 'space-'];
+    const genericExact = ['flex', 'grid', 'block', 'hidden', 'relative', 'absolute', 'inline', 'inline-block', 'inline-flex', 'container', 'wrapper'];
+
+    const otherUniqueClasses = classes.filter(c => {
+        // Skip exact matches to generic classes
+        if (genericExact.includes(c)) return false;
+        // Skip if it starts with a generic prefix
+        for (const generic of genericPrefixes) {
+            if (c.startsWith(generic)) return false;
+        }
+        // Already in high priority list
+        if (highPriorityClasses.includes(c)) return false;
+        // Prefer classes with specific names (length > 3)
+        return c.length > 3;
+    });
+
+    // Combine: high priority first, then other unique classes
+    const uniqueClasses = [...highPriorityClasses, ...otherUniqueClasses];
+    console.log('[StyleModifier] Searching for unique classes:', uniqueClasses.slice(0, 5));
+
+    // Escape special regex characters in class names (like text-[#d4d4d8])
+    function escapeRegex(str: string): string {
+        return str.replace(/[.*+?^${}()|[\]\\#]/g, '\\$&');
+    }
+
+    // Look for elements with these classes in order of uniqueness
+    for (const cls of uniqueClasses) {
+        const escapedCls = escapeRegex(cls);
+
+        // Search for className="...cls..." - match the entire className attribute
+        // Pattern: className="value" where value contains our class
+        const patterns = [
+            new RegExp(`className="([^"]*)"`, 'g'),
+            new RegExp(`className='([^']*)'`, 'g'),
+        ];
+
+        for (const pattern of patterns) {
+            let match;
+            // Reset regex lastIndex for each search
+            pattern.lastIndex = 0;
+
+            while ((match = pattern.exec(source)) !== null) {
+                const classNameValue = match[1]; // The captured group (content between quotes)
+
+                // Check if this className contains our target class
+                const classRegex = new RegExp(`(?:^|\\s)${escapedCls}(?:\\s|$)`);
+                if (!classRegex.test(classNameValue)) continue;
+
+                // Found the right element
+                // The start position is right after className=" (match.index + 11 for className=")
+                const classNameKeywordLength = 'className='.length + 1; // +1 for the opening quote
+                const absValueStart = match.index + classNameKeywordLength;
+                const absValueEnd = absValueStart + classNameValue.length;
+
+                console.log('[StyleModifier] Found element by className:', cls, 'positions:', absValueStart, absValueEnd);
+                return {
+                    start: absValueStart,
+                    end: absValueEnd,
+                    className: classNameValue,
+                    type: 'attribute' as const
+                };
+            }
+        }
+    }
+
+    console.log('[StyleModifier] Could not find element by className');
+    return null;
+}
 
 export interface ElementLocationOptions {
     textContent?: string;
     selector?: string;
     lineNumber?: number;
+    /** Element's actual className string (from DOM) */
+    className?: string;
 }
 
 /**
@@ -533,15 +751,21 @@ export function applyStyleChangesToSource(
         if (elementInfo) console.log('[StyleModifier] Found element by selector:', locOptions.selector);
     }
 
-    // Strategy 3: Find by Text Content (Fallback)
+    // Strategy 3: Find by Text Content
     if (!elementInfo && locOptions.textContent) {
         elementInfo = findElementByTextContent(modified, locOptions.textContent);
         if (elementInfo) console.log('[StyleModifier] Found element by text content');
     }
 
+    // Strategy 4: Find by className (for dynamic content where text isn't in source)
+    if (!elementInfo && locOptions.className) {
+        elementInfo = findElementByClassName(modified, locOptions.className);
+        if (elementInfo) console.log('[StyleModifier] Found element by className');
+    }
+
     if (!elementInfo) {
         for (const change of changes) {
-            failed.push(`${change.property}: Could not locate element (tried line: ${locOptions.lineNumber}, sel: ${locOptions.selector})`);
+            failed.push(`${change.property}: Could not locate element (tried line: ${locOptions.lineNumber}, sel: ${locOptions.selector}, className: ${locOptions.className?.slice(0, 50)})`);
         }
         return { modified, applied, failed };
     }

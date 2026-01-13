@@ -84,17 +84,19 @@ export async function handleDesignModeStyleUpdate(
     request: DesignModeStyleUpdateRequest,
     logger: StructuredLogger
 ): Promise<void> {
-    const { selector, filePath, changes, textContent, sourceLocation, skipDeploy } = request;
+    const { selector, filePath, changes, textContent, sourceLocation, skipDeploy, className, tailwindClasses } = request;
 
     console.log('[DESIGN_MODE] === STYLE UPDATE REQUEST RECEIVED ===');
     console.log('[DESIGN_MODE] Selector:', selector);
     console.log('[DESIGN_MODE] FilePath:', filePath || '(empty)');
+    console.log('[DESIGN_MODE] SourceLocation:', JSON.stringify(sourceLocation) || '(none)');
     console.log('[DESIGN_MODE] TextContent:', textContent?.slice(0, 50) || '(none)');
     console.log('[DESIGN_MODE] Changes:', JSON.stringify(changes, null, 2));
 
     logger.info('Design mode style update', {
         selector,
         filePath,
+        sourceLocation: sourceLocation ? { filePath: sourceLocation.filePath, lineNumber: sourceLocation.lineNumber } : null,
         changesCount: changes.length,
         hasText: !!textContent,
         changes: changes.map(c => ({ property: c.property, oldValue: c.oldValue, newValue: c.newValue }))
@@ -114,7 +116,9 @@ export async function handleDesignModeStyleUpdate(
         let rawFilePath: string | null | undefined = filePath;
         if (!filePath) {
             console.log('[DESIGN_MODE] No file path provided, searching...');
-            rawFilePath = await findFileForSelector(agent, selector, logger, textContent);
+            console.log('[DESIGN_MODE] className:', className);
+            console.log('[DESIGN_MODE] tailwindClasses:', tailwindClasses);
+            rawFilePath = await findFileForSelector(agent, selector, logger, textContent, className);
             console.log('[DESIGN_MODE] Search result:', rawFilePath);
         }
         const targetFilePath = rawFilePath ? normalizeFilePath(rawFilePath) : null;
@@ -141,6 +145,7 @@ export async function handleDesignModeStyleUpdate(
             changes,
             textContent,
             sourceLocation,
+            className,
             logger,
             skipDeploy
         );
@@ -191,12 +196,14 @@ async function findFileForSelector(
     agent: ICodingAgent,
     selector: string,
     _logger: StructuredLogger,
-    textContent?: string
+    textContent?: string,
+    className?: string
 ): Promise<string | null> {
     // Use console.log with distinct prefix for easy filtering
     console.log('[DESIGN_MODE] findFileForSelector called', {
         selector,
         textContent,
+        className,
     });
 
     // Get all files from FileManager (in memory, fast)
@@ -230,7 +237,57 @@ async function findFileForSelector(
         console.log('[DESIGN_MODE] Text content not found in any file');
     }
 
-    // 2. Try to find by unique ID if present
+    // 2. Try to find by className (from element's actual classes)
+    // This is crucial for dynamically rendered content where text isn't in source
+    if (className && className.length > 0) {
+        const classNames = className.split(/\s+/).filter(c => c.length > 0);
+
+        // First, look for highly specific/unique classes
+        const highPriorityClasses = classNames.filter(c =>
+            c.includes('gradient') ||
+            c.includes('display') ||
+            c.includes('hero') ||
+            c.includes('heading') ||
+            c.includes('title') ||
+            c.includes('tabular') || // e.g., tabular-nums
+            c.includes('balance') || // e.g., text-balance
+            (c.startsWith('font-') && !['font-normal', 'font-medium', 'font-bold'].includes(c))
+        );
+
+        // Then, filter out very common/generic layout classes
+        const genericPrefixes = ['flex', 'grid', 'block', 'hidden', 'relative', 'absolute', 'w-', 'h-', 'p-', 'm-', 'items-', 'justify-', 'gap-', 'space-'];
+        const genericExact = ['flex', 'grid', 'block', 'hidden', 'relative', 'absolute', 'inline', 'inline-block', 'inline-flex', 'container', 'wrapper'];
+
+        const otherUniqueClasses = classNames.filter(c => {
+            // Skip exact matches to generic classes
+            if (genericExact.includes(c)) return false;
+            // Skip if it's a common utility prefix
+            for (const generic of genericPrefixes) {
+                if (c.startsWith(generic)) return false;
+            }
+            // Already in high priority list
+            if (highPriorityClasses.includes(c)) return false;
+            // Prefer classes with specific names (not just numbers/sizes)
+            return c.length > 3;
+        });
+
+        // Combine: high priority first, then other unique
+        const uniqueClasses = [...highPriorityClasses, ...otherUniqueClasses];
+        console.log('[DESIGN_MODE] Searching by element className:', uniqueClasses.slice(0, 5));
+
+        // Search for unique classes in files
+        for (const cls of uniqueClasses) {
+            for (const file of componentFiles) {
+                if (file.fileContents && file.fileContents.includes(cls)) {
+                    console.log('[DESIGN_MODE] Found file by className:', file.filePath, 'class:', cls);
+                    return file.filePath;
+                }
+            }
+        }
+        console.log('[DESIGN_MODE] No unique class found in any file');
+    }
+
+    // 3. Try to find by unique ID if present
     const idMatch = selector.match(/#([a-zA-Z0-9_-]+)/);
     if (idMatch && idMatch[1] !== 'root') {
         const id = idMatch[1];
@@ -256,27 +313,27 @@ async function findFileForSelector(
         console.log('[DESIGN_MODE] ID not found in any file');
     }
 
-    // 3. Try to find by unique class name
+    // 4. Try to find by class name from selector (legacy - less useful without classes in selector)
     const classMatches = selector.match(/\.([a-zA-Z0-9_-]+)/g);
     if (classMatches && classMatches.length > 0) {
         // Use the last specific class (often the most unique)
-        const className = classMatches[classMatches.length - 1].substring(1);
+        const selectorClassName = classMatches[classMatches.length - 1].substring(1);
         const genericClasses = ['flex', 'grid', 'block', 'hidden', 'container', 'wrapper', 'relative', 'absolute'];
 
-        if (!genericClasses.includes(className)) {
-            console.log('[DESIGN_MODE] Searching by class name:', className);
+        if (!genericClasses.includes(selectorClassName)) {
+            console.log('[DESIGN_MODE] Searching by selector class name:', selectorClassName);
 
             for (const file of componentFiles) {
-                if (file.fileContents && file.fileContents.includes(className)) {
-                    console.log('[DESIGN_MODE] Found file by class name:', file.filePath);
+                if (file.fileContents && file.fileContents.includes(selectorClassName)) {
+                    console.log('[DESIGN_MODE] Found file by selector class name:', file.filePath);
                     return file.filePath;
                 }
             }
-            console.log('[DESIGN_MODE] Class name not found in any file');
+            console.log('[DESIGN_MODE] Selector class name not found in any file');
         }
     }
 
-    // 4. Fallback: Try to find by tag name from selector
+    // 5. Fallback: Try to find by tag name from selector
     const tagMatch = selector.match(/^([a-z]+)/i);
     if (tagMatch) {
         const tagName = tagMatch[1].toLowerCase();
@@ -293,13 +350,13 @@ async function findFileForSelector(
         }
     }
 
-    // 5. Last resort: If only one component file exists, use it
+    // 6. Last resort: If only one component file exists, use it
     if (componentFiles.length === 1) {
         console.log('[DESIGN_MODE] Only one component file, using it:', componentFiles[0].filePath);
         return componentFiles[0].filePath;
     }
 
-    // 6. If we have an App.tsx or main component, use that as default
+    // 7. If we have an App.tsx or main component, use that as default
     const mainFiles = ['src/App.tsx', 'src/App.jsx', 'app/page.tsx', 'app/page.jsx'];
     for (const mainFile of mainFiles) {
         const found = componentFiles.find(f => f.filePath === mainFile);
@@ -325,6 +382,7 @@ async function applyStyleChanges(
     changes: DesignModeStyleChange[],
     textContent: string | undefined,
     sourceLocation: { filePath: string; lineNumber: number; columnNumber?: number } | undefined,
+    className: string | undefined,
     logger: StructuredLogger,
     skipDeploy?: boolean
 ): Promise<StyleUpdateResult> {
@@ -332,13 +390,17 @@ async function applyStyleChanges(
         filePath,
         selector,
         changesCount: changes.length,
-        textContent: textContent?.slice(0, 30)
+        textContent: textContent?.slice(0, 30),
+        sourceLocation: sourceLocation ? { filePath: sourceLocation.filePath, lineNumber: sourceLocation.lineNumber } : null,
+        className: className?.slice(0, 50),
     });
 
     logger.info('Applying style changes deterministically', {
         filePath,
         selector,
         changesCount: changes.length,
+        lineNumber: sourceLocation?.lineNumber,
+        hasClassName: !!className,
     });
 
     try {
@@ -360,12 +422,13 @@ async function applyStyleChanges(
         const { applyStyleChangesToSource, applyInlineStylesToSource } = await import('./style-modifier');
 
         // 3. Try Tailwind-based modification first
-        // 3. Try Tailwind-based modification first
         const options = {
             textContent,
             selector,
-            lineNumber: sourceLocation?.lineNumber
+            lineNumber: sourceLocation?.lineNumber,
+            className, // For finding elements with dynamic content
         };
+        console.log('[DESIGN_MODE] Element location options:', options);
         let result = applyStyleChangesToSource(originalContent, changes, options);
 
         // 4. If Tailwind failed, try inline styles

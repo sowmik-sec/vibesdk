@@ -123,9 +123,49 @@ export function ColorControl({ styles, tailwindClasses, onChange, onBlur: _onBlu
         return tailwindClasses.find(c => c.match(/^bg-(inherit|current|transparent|black|white|[\w]+-\d+)/));
     }, [tailwindClasses]);
 
+    // Detect if this is gradient text (using background-clip: text technique)
+    const isGradientText = useMemo(() => {
+        // Access typed properties directly from DesignModeComputedStyles
+        const webkitFillColor = styles.WebkitTextFillColor || '';
+        const bgClip = styles.WebkitBackgroundClip || styles.backgroundClip || '';
+        const bgImage = styles.backgroundImage || '';
+
+        // Gradient text typically uses: -webkit-text-fill-color: transparent; background-clip: text;
+        const hasTransparentFill = webkitFillColor === 'transparent' || webkitFillColor.includes('transparent');
+        const hasTextClip = bgClip.includes('text');
+        const hasGradient = bgImage.includes('gradient');
+
+        return (hasTransparentFill && hasTextClip) || (hasTextClip && hasGradient);
+    }, [styles]);
+
+    // Extract first color from gradient for display
+    const effectiveTextColor = useMemo(() => {
+        if (!isGradientText) {
+            return styles.color;
+        }
+
+        // Try to extract first color from gradient
+        const bgImage = styles.backgroundImage || '';
+        const colorMatch = bgImage.match(/(?:rgb|rgba|hsl|hsla|#)(?:[^,)]+|\([^)]*\))+/);
+        if (colorMatch) {
+            return colorMatch[0].trim();
+        }
+
+        // Fallback to a gradient indicator - return the color anyway but mark it
+        return styles.color;
+    }, [styles, isGradientText]);
+
     const handleTextColorChange = useCallback((hex: string, _className: string) => {
-        onChange('color', hex, true);
-    }, [onChange]);
+        // For gradient text, we need to update both the gradient and potentially the text-fill-color
+        if (isGradientText) {
+            // Update color - this will make it a solid color instead of gradient
+            onChange('color', hex, false);
+            // Remove the transparent fill color to show the solid color
+            onChange('WebkitTextFillColor', hex, true);
+        } else {
+            onChange('color', hex, true);
+        }
+    }, [onChange, isGradientText]);
 
     const handleBgColorChange = useCallback((hex: string, _className: string) => {
         onChange('backgroundColor', hex, true);
@@ -134,8 +174,8 @@ export function ColorControl({ styles, tailwindClasses, onChange, onBlur: _onBlu
     return (
         <div className="space-y-3">
             <ColorPicker
-                label="Text Color"
-                currentColor={styles.color}
+                label={isGradientText ? "Text Color (Gradient)" : "Text Color"}
+                currentColor={effectiveTextColor}
                 currentClass={textColorClass}
                 onChange={handleTextColorChange}
                 prefix="text"
