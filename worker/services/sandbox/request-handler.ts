@@ -88,7 +88,18 @@ export async function proxyToSandbox<E extends SandboxEnv>(
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('text/html')) {
       const originalHtml = await response.text();
+      logger.debug('Injecting design mode script into HTML response', { 
+        path, 
+        htmlLength: originalHtml.length,
+        hasHead: originalHtml.includes('<head'),
+        hasHtml: originalHtml.includes('<html')
+      });
       const injectedHtml = injectDesignModeScript(originalHtml);
+      logger.debug('Design mode script injected', { 
+        originalLength: originalHtml.length,
+        injectedLength: injectedHtml.length,
+        scriptAdded: injectedHtml.length > originalHtml.length
+      });
 
       const newHeaders = new Headers(response.headers);
       newHeaders.set('content-length', String(new TextEncoder().encode(injectedHtml).length));
@@ -309,6 +320,25 @@ function getDesignModeScript(): string {
         return str.replace(/([A-Z])/g, '-$1').toLowerCase();
     }
     
+    // Map CSS properties to Tailwind class patterns they conflict with
+    const tailwindConflicts = {
+        'fontSize': /^text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/,
+        'fontWeight': /^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/,
+        'textAlign': /^text-(left|center|right|justify|start|end)$/,
+        'color': /^text-\w+(-\d+)?$/,
+        'backgroundColor': /^bg-\w+(-\d+)?$/,
+        'padding': /^p(|[tblrxy])?-\d+$/,
+        'paddingTop': /^p(|t)-\d+$/,
+        'paddingBottom': /^p(|b)-\d+$/,
+        'paddingLeft': /^p(|l)-\d+$/,
+        'paddingRight': /^p(|r)-\d+$/,
+        'margin': /^m(|[tblrxy])?-\d+$/,
+        'marginTop': /^m(|t)-\d+$/,
+        'marginBottom': /^m(|b)-\d+$/,
+        'marginLeft': /^m(|l)-\d+$/,
+        'marginRight': /^m(|r)-\d+$/,
+    };
+    
     // Apply preview styles DIRECTLY to the selected element (instant feedback)
     function applyPreviewStyle(sel, styles) {
         // Try to use the stored selectedElement first (instant)
@@ -328,26 +358,65 @@ function getDesignModeScript(): string {
             return;
         }
         
-        // Store original styles for restoration
+        // Store original state for restoration
         if (!el.__vibesdk_orig) {
-            el.__vibesdk_orig = {};
+            el.__vibesdk_orig = {
+                styles: {},
+                className: el.className
+            };
         }
+        
+        // Get current classes
+        const classes = el.className.split(/\s+/).filter(c => c);
+        const classesToRemove = [];
         
         // Apply each style directly to the element
         for (const prop in styles) {
             const kebabProp = toKebabCase(prop);
             const value = styles[prop];
             
-            // Store original value if not already stored
-            if (!(prop in el.__vibesdk_orig)) {
-                el.__vibesdk_orig[prop] = el.style.getPropertyValue(kebabProp) || '';
+            // Store original inline style value if not already stored
+            if (!(prop in el.__vibesdk_orig.styles)) {
+                el.__vibesdk_orig.styles[prop] = el.style.getPropertyValue(kebabProp) || '';
+            }
+            
+            // Remove conflicting Tailwind classes to prevent them from overriding our inline style
+            const conflictPattern = tailwindConflicts[prop];
+            if (conflictPattern) {
+                classes.forEach(cls => {
+                    if (conflictPattern.test(cls)) {
+                        classesToRemove.push(cls);
+                        console.log('[VibeSDK] Removing conflicting Tailwind class:', cls);
+                    }
+                });
             }
             
             console.log('[VibeSDK] Setting style:', kebabProp, '=', value);
+            
+            // Get computed style BEFORE applying
+            const computedBefore = window.getComputedStyle(el).getPropertyValue(kebabProp);
+            console.log('[VibeSDK] Computed style BEFORE:', kebabProp, '=', computedBefore);
+            
             el.style.setProperty(kebabProp, value, 'important');
+            
+            // Get computed style AFTER applying
+            const computedAfter = window.getComputedStyle(el).getPropertyValue(kebabProp);
+            const inlineAfter = el.style.getPropertyValue(kebabProp);
+            console.log('[VibeSDK] Inline style AFTER:', kebabProp, '=', inlineAfter);
+            console.log('[VibeSDK] Computed style AFTER:', kebabProp, '=', computedAfter);
+            console.log('[VibeSDK] Style applied successfully?', computedAfter === value || computedAfter === inlineAfter);
         }
         
-        console.log('[VibeSDK] applyPreviewStyle complete, element style:', el.style.cssText);
+        // Remove conflicting classes
+        if (classesToRemove.length > 0) {
+            const remainingClasses = classes.filter(c => !classesToRemove.includes(c));
+            el.className = remainingClasses.join(' ');
+            console.log('[VibeSDK] Updated className:', el.className);
+        }
+        
+        console.log('[VibeSDK] applyPreviewStyle complete');
+        console.log('[VibeSDK] Final element.style.cssText:', el.style.cssText);
+        console.log('[VibeSDK] Final element.className:', el.className);
     }
     
     // Clear preview styles and restore originals
@@ -356,15 +425,23 @@ function getDesignModeScript(): string {
         console.log('[VibeSDK] clearPreviewStyle called', { selector: sel, hasElement: !!el });
         
         if (el && el.__vibesdk_orig) {
-            for (const prop in el.__vibesdk_orig) {
+            // Restore original inline styles
+            for (const prop in el.__vibesdk_orig.styles) {
                 const kebabProp = toKebabCase(prop);
-                const originalValue = el.__vibesdk_orig[prop];
+                const originalValue = el.__vibesdk_orig.styles[prop];
                 if (originalValue) {
                     el.style.setProperty(kebabProp, originalValue);
                 } else {
                     el.style.removeProperty(kebabProp);
                 }
             }
+            
+            // Restore original className
+            if (el.__vibesdk_orig.className !== undefined) {
+                el.className = el.__vibesdk_orig.className;
+                console.log('[VibeSDK] Restored className:', el.className);
+            }
+            
             delete el.__vibesdk_orig;
         }
     }
@@ -401,6 +478,26 @@ function getDesignModeScript(): string {
         console.log('[VibeSDK] Design mode disabled');
     }
     
+    // Log script initialization immediately
+    console.log('%c[VibeSDK] Design mode script loaded!', 'background: #00ff00; color: #000; font-weight: bold; padding: 2px 5px;');
+    console.log('[VibeSDK] Script loaded at:', new Date().toISOString());
+    console.log('[VibeSDK] Window location:', window.location.href);
+    console.log('[VibeSDK] Parent origin:', window.parent !== window ? document.referrer : 'no parent');
+    console.log('[VibeSDK] Message prefix to listen for:', DESIGN_MODE_MESSAGE_PREFIX);
+    
+    // Log ALL messages to debug
+    window.addEventListener('message', function(e) {
+        console.log('[VibeSDK] Raw message event received:', {
+            origin: e.origin,
+            hasData: !!e.data,
+            dataType: typeof e.data,
+            data: e.data,
+            hasPrefix: e.data && e.data.prefix,
+            prefix: e.data && e.data.prefix,
+            matchesPrefix: e.data && e.data.prefix === DESIGN_MODE_MESSAGE_PREFIX
+        });
+    }, true); // Capture phase to see it first
+    
     window.addEventListener('message', function(e) {
         const d = e.data; if (!d || d.prefix !== DESIGN_MODE_MESSAGE_PREFIX) return;
         console.log('[VibeSDK] Message received:', d.type, d);
@@ -416,23 +513,32 @@ function getDesignModeScript(): string {
     });
     
     sendMessage({ type: 'design_mode_ready' });
-    console.log('[VibeSDK] Design mode client initialized');
+    console.log('%c[VibeSDK] Design mode client initialized and ready!', 'background: #0066ff; color: #fff; font-weight: bold; padding: 2px 5px;');
 })();
 </script>`;
 }
 
 function injectDesignModeScript(html: string): string {
-
   const script = getDesignModeScript();
 
-  // Inject after <head> tag if present
-  if (html.includes('<head>')) {
-    return html.replace(/<head>/i, `<head>${script}`);
-  } else if (html.includes('<HEAD>')) {
-    return html.replace(/<HEAD>/i, `<HEAD>${script}`);
+  // Try multiple injection points in order of preference
+  
+  // 1. After opening <head> tag (most reliable for React apps)
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (match) => `${match}${script}`);
+  }
+  
+  // 2. After opening <html> tag
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/<html[^>]*>/i, (match) => `${match}${script}`);
+  }
+  
+  // 3. After DOCTYPE
+  if (/<!DOCTYPE[^>]*>/i.test(html)) {
+    return html.replace(/<!DOCTYPE[^>]*>/i, (match) => `${match}${script}`);
   }
 
-  // Fallback: inject at the beginning of the document
+  // 4. Fallback: inject at the very beginning
   return script + html;
 }
 

@@ -64,6 +64,8 @@ export default defineConfig({
 
 	server: {
 		allowedHosts: true,
+		port: 5173,
+		strictPort: true,
 	},
 
 	// Clear cache more aggressively

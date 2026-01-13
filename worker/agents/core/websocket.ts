@@ -287,7 +287,34 @@ export function handleWebSocketMessage(
                         logger.error('Error handling design mode text update:', error);
                         sendError(connection, `Error updating text: ${error instanceof Error ? error.message : String(error)}`);
                     });
-                });
+                });                break;
+            case WebSocketMessageRequests.DESIGN_MODE_REFRESH_PREVIEW:
+                // Manually trigger a deploy to refresh the preview
+                logger.info('Received design mode refresh preview request');
+                
+                // Use the agent's deploy method to trigger a fresh deploy
+                (async () => {
+                    try {
+                        const files = agent.getBehavior().listFiles();
+                        // Deploy all files with optimistic=false for full health check
+                        await (agent.getBehavior() as any).deployToSandbox(
+                            files,
+                            false, // clearContainer
+                            'design mode: manual preview refresh',
+                            false, // clearLogs
+                            undefined, // callbacks
+                            false // optimistic - do full health check
+                        );
+                        
+                        sendToConnection(connection, WebSocketMessageResponses.DESIGN_MODE_REFRESH_COMPLETE, {
+                            success: true,
+                        });
+                        logger.info('Preview refresh completed successfully');
+                    } catch (error) {
+                        logger.error('Failed to refresh preview:', error);
+                        sendError(connection, `Failed to refresh preview: ${error instanceof Error ? error.message : String(error)}`);
+                    }
+                })();
                 break;
             case WebSocketMessageRequests.DESIGN_MODE_UNDO:
             case WebSocketMessageRequests.DESIGN_MODE_REDO:

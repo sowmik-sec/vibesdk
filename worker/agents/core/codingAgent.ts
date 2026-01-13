@@ -750,7 +750,11 @@ export class CodeGeneratorAgent extends Agent<Env, AgentState> implements AgentI
         'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
         'border', 'borderWidth', 'borderColor', 'borderStyle', 'borderRadius',
         'width', 'height', 'display', 'flexDirection', 'justifyContent', 'alignItems', 'gap',
-        'boxShadow', 'opacity'
+        'boxShadow', 'opacity',
+        'backgroundImage', 'backgroundSize', 'backgroundPosition', 'backgroundRepeat',
+        'position', 'top', 'right', 'bottom', 'left', 'zIndex',
+        'overflow', 'overflowX', 'overflowY',
+        'cursor', 'pointerEvents'
     ];
     
     let isDesignModeActive = false;

@@ -661,7 +661,7 @@ export class SandboxSdkClient extends BaseSandboxService {
 
             // Start process with env vars inline for those not in .dev.vars
             const process = await session.startProcess(
-                `VITE_LOGGER_TYPE=json PORT=${port} monitor-cli process start --instance-id ${instanceId} --port ${port} -- npm run dev -- --host --port ${port}`
+                `VITE_LOGGER_TYPE=json PORT=${port} monitor-cli process start --instance-id ${instanceId} --port ${port} -- npm run dev -- --host`
             );
             this.logger.info('Development server started', { instanceId, processId: process.id });
 

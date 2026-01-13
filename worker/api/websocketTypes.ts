@@ -583,6 +583,7 @@ export type DesignModeStyleUpdateRequest = {
 	};
 	textContent?: string;
 	changes: DesignModeStyleChange[];
+	skipDeploy?: boolean;
 };
 
 /** Server response after style update */
@@ -648,6 +649,18 @@ export type DesignModeCodeLocationResponse = {
 	columnNumber?: number;
 };
 
+/** Client request to manually refresh preview (trigger deploy) */
+export type DesignModeRefreshPreviewRequest = {
+	type: 'design_mode_refresh_preview';
+};
+
+/** Server response after refresh preview */
+export type DesignModeRefreshCompleteResponse = {
+	type: 'design_mode_refresh_complete';
+	success: boolean;
+	error?: string;
+};
+
 /** Union of design mode messages */
 export type DesignModeWebSocketMessage =
 	| DesignModeStyleUpdateRequest
@@ -657,7 +670,9 @@ export type DesignModeWebSocketMessage =
 	| DesignModeUndoRequest
 	| DesignModeRedoRequest
 	| DesignModeGoToCodeRequest
-	| DesignModeCodeLocationResponse;
+	| DesignModeCodeLocationResponse
+	| DesignModeRefreshPreviewRequest
+	| DesignModeRefreshCompleteResponse;
 
 export type WebSocketMessage =
 	| StateMessage
@@ -720,7 +735,8 @@ export type WebSocketMessage =
 	| VaultLockedMessage
 	| VaultRequiredMessage
 	| DesignModeStyleUpdatedResponse
-	| DesignModeCodeLocationResponse;
+	| DesignModeCodeLocationResponse
+	| DesignModeRefreshCompleteResponse;
 
 // A type representing all possible message type strings (e.g., 'generation_started', 'file_generating', etc.)
 export type WebSocketMessageType = WebSocketMessage['type'];
