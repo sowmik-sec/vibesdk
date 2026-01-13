@@ -733,12 +733,26 @@ export class CodeGeneratorAgent extends Agent<Env, AgentState> implements AgentI
         if (normalized.endsWith('.html') || contentType.includes('text/html')) {
             const baseTag = `<base href="/">`;
 
-            // Design mode client script - enables element selection in preview
             const designModeScript = `
 <script>
 (function() {
     'use strict';
+    
+    // Version-based conflict resolution - skip if newer version already loaded
+    const SCRIPT_VERSION = '4.0';
+    if (window.__vibesdk_design_mode_version) {
+        const existingVersion = parseFloat(window.__vibesdk_design_mode_version);
+        const newVersion = parseFloat(SCRIPT_VERSION);
+        if (existingVersion >= newVersion) {
+            console.log('[VibeSDK] Version ' + existingVersion + ' already loaded, skipping ' + SCRIPT_VERSION);
+            return;
+        }
+        console.log('[VibeSDK] Upgrading from version ' + existingVersion + ' to ' + SCRIPT_VERSION);
+    }
+    window.__vibesdk_design_mode_version = SCRIPT_VERSION;
+    
     if (window.__vibesdk_design_mode_initialized) return;
+    console.log('[VibeSDK] Design mode script initialized - VERSION: ' + SCRIPT_VERSION);
     window.__vibesdk_design_mode_initialized = true;
     
     const DESIGN_MODE_MESSAGE_PREFIX = 'vibesdk_design_mode';

@@ -88,14 +88,14 @@ export async function proxyToSandbox<E extends SandboxEnv>(
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('text/html')) {
       const originalHtml = await response.text();
-      logger.debug('Injecting design mode script into HTML response', { 
-        path, 
+      logger.debug('Injecting design mode script into HTML response', {
+        path,
         htmlLength: originalHtml.length,
         hasHead: originalHtml.includes('<head'),
         hasHtml: originalHtml.includes('<html')
       });
       const injectedHtml = injectDesignModeScript(originalHtml);
-      logger.debug('Design mode script injected', { 
+      logger.debug('Design mode script injected', {
         originalLength: originalHtml.length,
         injectedLength: injectedHtml.length,
         scriptAdded: injectedHtml.length > originalHtml.length
@@ -127,13 +127,29 @@ function getDesignModeScript(): string {
 <script>
 (function() {
     'use strict';
+    
+    // Version-based conflict resolution - skip if newer version already loaded
+    const SCRIPT_VERSION = '4.0';
+    if (window.__vibesdk_design_mode_version) {
+        const existingVersion = parseFloat(window.__vibesdk_design_mode_version);
+        const newVersion = parseFloat(SCRIPT_VERSION);
+        if (existingVersion >= newVersion) {
+            console.log('[VibeSDK] Version ' + existingVersion + ' already loaded, skipping ' + SCRIPT_VERSION);
+            return;
+        }
+        console.log('[VibeSDK] Upgrading from version ' + existingVersion + ' to ' + SCRIPT_VERSION);
+    }
+    window.__vibesdk_design_mode_version = SCRIPT_VERSION;
+    
     if (window.__vibesdk_design_mode_initialized) return;
+    console.log('[VibeSDK] Design mode script initialized - VERSION: ' + SCRIPT_VERSION);
     window.__vibesdk_design_mode_initialized = true;
     
     const DESIGN_MODE_MESSAGE_PREFIX = 'vibesdk_design_mode';
     const IGNORED_ELEMENTS = ['SCRIPT', 'STYLE', 'META', 'LINK', 'HEAD', 'HTML'];
     const COMPUTED_STYLE_PROPERTIES = [
-        'color', 'backgroundColor', 'fontSize', 'fontFamily', 'fontWeight',
+        'color', 'backgroundColor', 'backgroundImage', 'backgroundClip', 'WebkitBackgroundClip', 'WebkitTextFillColor',
+        'fontSize', 'fontFamily', 'fontWeight',
         'lineHeight', 'letterSpacing', 'textAlign', 'textDecoration',
         'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
         'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
@@ -192,28 +208,47 @@ function getDesignModeScript(): string {
         highlightOverlay = null; selectionOverlay = null;
     }
     
+    // Simple, reliable element tracking using direct element reference
+    // Assign a unique ID that stays with the element
     function generateSelector(el) {
-        const path = []; let cur = el;
-        while (cur && cur !== document.body && cur !== document.documentElement) {
-            let sel = cur.tagName.toLowerCase();
-            if (cur.id) { path.unshift('#'+CSS.escape(cur.id)); break; }
-            if (cur.className && typeof cur.className === 'string') {
-                const cls = cur.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('__vibesdk')).slice(0,2);
-                if (cls.length) sel += '.'+cls.map(c => CSS.escape(c)).join('.');
+        console.log('[VibeSDK] ===== generateSelector called =====');
+        console.log('[VibeSDK] Element:', el.tagName, 'className:', el.className);
+        
+        // ALWAYS assign a unique tracking ID
+        if (!el.dataset.vibesdkId) {
+            const trackingId = 'el-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            el.dataset.vibesdkId = trackingId;
+            
+            // Store direct element reference in a global map for instant lookup
+            if (!window.__vibesdkElementMap) {
+                window.__vibesdkElementMap = new Map();
+                console.log('[VibeSDK] Created new element map');
             }
-            const parent = cur.parentElement;
-            if (parent) {
-                const sibs = Array.from(parent.children).filter(c => c.tagName === cur.tagName);
-                if (sibs.length > 1) sel += ':nth-of-type('+(sibs.indexOf(cur)+1)+')';
-            }
-            path.unshift(sel); cur = cur.parentElement;
+            window.__vibesdkElementMap.set(trackingId, el);
+            
+            console.log('[VibeSDK] Assigned NEW tracking ID:', trackingId, 'to', el.tagName, el.className);
+        } else {
+            console.log('[VibeSDK] Element already has tracking ID:', el.dataset.vibesdkId);
         }
-        return path.join(' > ');
+        
+        const selector = '[data-vibesdk-id="' + el.dataset.vibesdkId + '"]';
+        console.log('[VibeSDK] Generated selector:', selector);
+        return selector;
     }
     
     function extractStyles(el) {
-        const computed = window.getComputedStyle(el), styles = {};
-        COMPUTED_STYLE_PROPERTIES.forEach(p => { styles[p] = computed.getPropertyValue(p.replace(/([A-Z])/g, '-$1').toLowerCase()); });
+        const computed = window.getComputedStyle(el);
+        const styles = {};
+        
+        console.log('[VibeSDK] extractStyles called for:', el.tagName, 'className:', el.className);
+        console.log('[VibeSDK] Element color:', computed.getPropertyValue('color'));
+        console.log('[VibeSDK] Element text:', (el.textContent || '').substring(0, 50));
+        
+        COMPUTED_STYLE_PROPERTIES.forEach(p => { 
+            styles[p] = computed.getPropertyValue(p.replace(/([A-Z])/g, '-$1').toLowerCase()); 
+        });
+        
+        console.log('[VibeSDK] Extracted color:', styles.color);
         return styles;
     }
     
@@ -276,16 +311,55 @@ function getDesignModeScript(): string {
         } catch (err) {
             console.warn('[VibeSDK] getFiberSource error:', err);
         }
+        
+        // Detect element type for contextual design panel
+        const tagName = el.tagName.toLowerCase();
+        const elementType = detectElementType(el, tagName);
+        
         return {
-            tagName: el.tagName.toLowerCase(), id: el.id || null, className: el.className || '',
-            selector: generateSelector(el), textContent: (el.textContent||'').slice(0,200),
+            tagName: tagName, 
+            id: el.id || null, 
+            className: el.className || '',
+            selector: generateSelector(el), 
+            textContent: (el.textContent||'').slice(0,200),
             boundingRect: {top:r.top,left:r.left,width:r.width,height:r.height},
             computedStyles: extractStyles(el),
             tailwindClasses: (el.className && typeof el.className === 'string') ? el.className.trim().split(/\\s+/).filter(c => c) : [],
-            dataAttributes: {}, sourceLocation: sourceLocation,
+            dataAttributes: {}, 
+            sourceLocation: sourceLocation,
             parentSelector: el.parentElement ? generateSelector(el.parentElement) : null,
-            childCount: el.children.length
+            childCount: el.children.length,
+            elementType: elementType, // NEW: element type for contextual panels
+            hasInlineStyles: !!(el.style && el.style.cssText), // NEW: detect inline styles
+            isNested: !!el.parentElement && el.parentElement.tagName !== 'BODY' // NEW: detect nested elements
         };
+    }
+    
+    // Detect what kind of element this is for contextual design panels
+    function detectElementType(el, tagName) {
+        // Button elements
+        if (tagName === 'button' || el.getAttribute('role') === 'button') return 'button';
+        
+        // Input elements
+        if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') return 'input';
+        
+        // Text elements (including spans)
+        if (tagName === 'span' || tagName === 'p' || tagName === 'h1' || tagName === 'h2' || 
+            tagName === 'h3' || tagName === 'h4' || tagName === 'h5' || tagName === 'h6' ||
+            tagName === 'label' || tagName === 'a') return 'text';
+        
+        // Image elements
+        if (tagName === 'img' || tagName === 'svg') return 'image';
+        
+        // Container elements
+        if (tagName === 'div' || tagName === 'section' || tagName === 'article' || 
+            tagName === 'header' || tagName === 'footer' || tagName === 'nav' ||
+            tagName === 'main' || tagName === 'aside') return 'container';
+        
+        // List elements
+        if (tagName === 'ul' || tagName === 'ol' || tagName === 'li') return 'list';
+        
+        return 'generic';
     }
     
 
@@ -304,12 +378,34 @@ function getDesignModeScript(): string {
     function handleClick(e) {
         if (!isDesignModeActive) return;
         e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        
+        // Get the EXACT element clicked (e.target is the innermost element)
         const t = e.target;
         if (!t || shouldIgnoreElement(t)) return;
-        if (t === selectedElement) { selectedElement = null; hideOverlay(selectionOverlay); sendMessage({ type: 'design_mode_element_deselected' }); return; }
+        
+        console.log('[VibeSDK] ========== CLICK EVENT ==========');
+        console.log('[VibeSDK] Clicked element:', {
+            tag: t.tagName,
+            className: t.className,
+            id: t.id,
+            text: (t.textContent || '').substring(0, 50),
+            parent: t.parentElement?.tagName,
+            computedColor: window.getComputedStyle(t).getPropertyValue('color')
+        });
+        
+        if (t === selectedElement) { 
+            selectedElement = null; 
+            hideOverlay(selectionOverlay); 
+            sendMessage({ type: 'design_mode_element_deselected' }); 
+            return; 
+        }
         selectedElement = t; hoveredElement = null; hideOverlay(highlightOverlay);
         positionOverlay(selectionOverlay, t.getBoundingClientRect());
-        sendMessage({ type: 'design_mode_element_selected', element: extractElementData(t) });
+        console.log('[VibeSDK] Selected element:', t.tagName, 'Selector:', generateSelector(t));
+        
+        const elementData = extractElementData(t);
+        console.log('[VibeSDK] Element data color:', elementData.computedStyles.color);
+        sendMessage({ type: 'design_mode_element_selected', element: elementData });
     }
     
     function handleKeyDown(e) { if (e.key === 'Escape' && selectedElement) { selectedElement = null; hideOverlay(selectionOverlay); sendMessage({ type: 'design_mode_element_deselected' }); } }
@@ -341,15 +437,32 @@ function getDesignModeScript(): string {
     
     // Apply preview styles DIRECTLY to the selected element (instant feedback)
     function applyPreviewStyle(sel, styles) {
-        // Try to use the stored selectedElement first (instant)
-        // Fall back to querySelector if element not stored
-        const el = selectedElement || document.querySelector(sel);
+        // Priority 1: Use the cached selectedElement (instant, no lookup)
+        let el = selectedElement;
+        
+        if (!el) {
+            // Priority 2: Try direct element map lookup (reliable)
+            const idMatch = sel.match(/\[data-vibesdk-id="([^"]+)"\]/);
+            if (idMatch && window.__vibesdkElementMap) {
+                const trackingId = idMatch[1];
+                el = window.__vibesdkElementMap.get(trackingId);
+                if (el) {
+                    console.log('[VibeSDK] Found element via tracking ID:', trackingId);
+                }
+            }
+        }
+        
+        if (!el) {
+            // Priority 3: Fallback to querySelector
+            el = document.querySelector(sel);
+            console.log('[VibeSDK] Found element via querySelector:', !!el);
+        }
         
         console.log('[VibeSDK] applyPreviewStyle called', { 
             selector: sel, 
             styles: styles,
-            hasSelectedElement: !!selectedElement,
-            usingQuerySelector: !selectedElement && !!el,
+            elementTag: el?.tagName,
+            elementClassName: el?.className,
             elementFound: !!el
         });
         
@@ -478,13 +591,6 @@ function getDesignModeScript(): string {
         console.log('[VibeSDK] Design mode disabled');
     }
     
-    // Log script initialization immediately
-    console.log('%c[VibeSDK] Design mode script loaded!', 'background: #00ff00; color: #000; font-weight: bold; padding: 2px 5px;');
-    console.log('[VibeSDK] Script loaded at:', new Date().toISOString());
-    console.log('[VibeSDK] Window location:', window.location.href);
-    console.log('[VibeSDK] Parent origin:', window.parent !== window ? document.referrer : 'no parent');
-    console.log('[VibeSDK] Message prefix to listen for:', DESIGN_MODE_MESSAGE_PREFIX);
-    
     // Log ALL messages to debug
     window.addEventListener('message', function(e) {
         console.log('[VibeSDK] Raw message event received:', {
@@ -522,17 +628,17 @@ function injectDesignModeScript(html: string): string {
   const script = getDesignModeScript();
 
   // Try multiple injection points in order of preference
-  
+
   // 1. After opening <head> tag (most reliable for React apps)
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (match) => `${match}${script}`);
   }
-  
+
   // 2. After opening <html> tag
   if (/<html[^>]*>/i.test(html)) {
     return html.replace(/<html[^>]*>/i, (match) => `${match}${script}`);
   }
-  
+
   // 3. After DOCTYPE
   if (/<!DOCTYPE[^>]*>/i.test(html)) {
     return html.replace(/<!DOCTYPE[^>]*>/i, (match) => `${match}${script}`);
