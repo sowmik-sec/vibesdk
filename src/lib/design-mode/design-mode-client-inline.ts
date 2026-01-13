@@ -15,11 +15,15 @@ const IGNORED_ELEMENTS = ['SCRIPT', 'STYLE', 'META', 'LINK', 'HEAD', 'HTML'];
 
 // List of CSS properties to extract
 const COMPUTED_STYLE_PROPERTIES = [
-    'color', 'backgroundColor', 'fontSize', 'fontFamily', 'fontWeight',
+    'color', 'backgroundColor', 'backgroundImage', 'backgroundClip', 'WebkitBackgroundClip', 'WebkitTextFillColor',
+    'fontSize', 'fontFamily', 'fontWeight',
     'lineHeight', 'letterSpacing', 'textAlign', 'textDecoration',
     'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
     'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
     'border', 'borderWidth', 'borderColor', 'borderStyle', 'borderRadius',
+    'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+    'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+    'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomLeftRadius', 'borderBottomRightRadius',
     'width', 'height', 'maxWidth', 'maxHeight', 'minWidth', 'minHeight',
     'display', 'flexDirection', 'justifyContent', 'alignItems', 'gap',
     'position', 'top', 'right', 'bottom', 'left', 'zIndex',
@@ -34,13 +38,29 @@ export function getDesignModeClientScript(): string {
 (function() {
     'use strict';
     
+    // Version-based conflict resolution - skip if newer version already loaded
+    const SCRIPT_VERSION = '4.0';
+    if (window.__vibesdk_design_mode_version) {
+        const existingVersion = parseFloat(window.__vibesdk_design_mode_version);
+        const newVersion = parseFloat(SCRIPT_VERSION);
+        if (existingVersion >= newVersion) {
+            console.log('[VibeSDK] Version ' + existingVersion + ' already loaded, skipping ' + SCRIPT_VERSION);
+            return;
+        }
+        console.log('[VibeSDK] Upgrading from version ' + existingVersion + ' to ' + SCRIPT_VERSION);
+    }
+    window.__vibesdk_design_mode_version = SCRIPT_VERSION;
+    
     // Prevent double initialization
     if (window.__vibesdk_design_mode_initialized) return;
+    console.log('[VibeSDK] Design mode script initialized - VERSION: ' + SCRIPT_VERSION);
     window.__vibesdk_design_mode_initialized = true;
     
     const DESIGN_MODE_MESSAGE_PREFIX = '${DESIGN_MODE_MESSAGE_PREFIX}';
     const IGNORED_ELEMENTS = ${JSON.stringify(IGNORED_ELEMENTS)};
     const COMPUTED_STYLE_PROPERTIES = ${JSON.stringify(COMPUTED_STYLE_PROPERTIES)};
+    
+    console.log('[VibeSDK] COMPUTED_STYLE_PROPERTIES:', COMPUTED_STYLE_PROPERTIES);
     
     // State
     let isDesignModeActive = false;
@@ -120,40 +140,31 @@ export function getDesignModeClientScript(): string {
     // Element Data Extraction
     // ========================================================================
     
+    // Simple, reliable element tracking using direct element reference
     function generateSelector(element) {
-        const path = [];
-        let current = element;
+        console.log('[VibeSDK] ===== generateSelector called (CLIENT-INLINE) =====');
+        console.log('[VibeSDK] Element:', element.tagName, 'className:', element.className);
         
-        while (current && current !== document.body && current !== document.documentElement) {
-            let selector = current.tagName.toLowerCase();
+        // ALWAYS assign a unique tracking ID
+        if (!element.dataset.vibesdkId) {
+            const trackingId = 'el-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            element.dataset.vibesdkId = trackingId;
             
-            if (current.id) {
-                selector = '#' + CSS.escape(current.id);
-                path.unshift(selector);
-                break;
+            // Store direct element reference in a global map for instant lookup
+            if (!window.__vibesdkElementMap) {
+                window.__vibesdkElementMap = new Map();
+                console.log('[VibeSDK] Created new element map');
             }
+            window.__vibesdkElementMap.set(trackingId, element);
             
-            if (current.className && typeof current.className === 'string') {
-                const classes = current.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('__vibesdk'));
-                if (classes.length > 0) {
-                    selector += '.' + classes.slice(0, 2).map(c => CSS.escape(c)).join('.');
-                }
-            }
-            
-            const parent = current.parentElement;
-            if (parent) {
-                const siblings = Array.from(parent.children).filter(c => c.tagName === current.tagName);
-                if (siblings.length > 1) {
-                    const index = siblings.indexOf(current) + 1;
-                    selector += ':nth-of-type(' + index + ')';
-                }
-            }
-            
-            path.unshift(selector);
-            current = current.parentElement;
+            console.log('[VibeSDK] Assigned NEW tracking ID:', trackingId, 'to', element.tagName, element.className);
+        } else {
+            console.log('[VibeSDK] Element already has tracking ID:', element.dataset.vibesdkId);
         }
         
-        return path.join(' > ');
+        const selector = '[data-vibesdk-id="' + element.dataset.vibesdkId + '"]';
+        console.log('[VibeSDK] Generated selector:', selector);
+        return selector;
     }
     
     function extractComputedStyles(element) {
@@ -220,6 +231,32 @@ export function getDesignModeClientScript(): string {
         return null;
     }
     
+    // Detect what kind of element this is for contextual design panels
+    function detectElementType(el, tagName) {
+        // Button elements
+        if (tagName === 'button' || el.getAttribute('role') === 'button') return 'button';
+        
+        // Input elements
+        if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') return 'input';
+        
+        // Text elements (including spans)
+        if (tagName === 'span' || tagName === 'p' || tagName === 'h1' || tagName === 'h2' || 
+            tagName === 'h3' || tagName === 'h4' || tagName === 'h5' || tagName === 'h6' ||
+            tagName === 'label' || tagName === 'a') return 'text';
+        
+        // Image elements
+        if (tagName === 'img' || tagName === 'svg') return 'image';
+        
+        // Container elements
+        if (tagName === 'div' || tagName === 'section' || tagName === 'article' || 
+            tagName === 'header' || tagName === 'footer' || tagName === 'nav' ||
+            tagName === 'main' || tagName === 'aside') return 'container';
+        
+        // List elements
+        if (tagName === 'ul' || tagName === 'ol' || tagName === 'li') return 'list';
+        
+        return 'generic';
+    }
 
     function extractElementData(element) {
         const rect = element.getBoundingClientRect();
@@ -229,8 +266,12 @@ export function getDesignModeClientScript(): string {
         } catch (err) {
             console.warn('[VibeSDK] getFiberSource error:', err);
         }
+        
+        const tagName = element.tagName.toLowerCase();
+        const elementType = detectElementType(element, tagName);
+        
         return {
-            tagName: element.tagName.toLowerCase(),
+            tagName: tagName,
             id: element.id || null,
             className: element.className || '',
             selector: generateSelector(element),
@@ -241,7 +282,10 @@ export function getDesignModeClientScript(): string {
             dataAttributes: {},
             sourceLocation: sourceLocation,
             parentSelector: element.parentElement ? generateSelector(element.parentElement) : null,
-            childCount: element.children.length
+            childCount: element.children.length,
+            elementType: elementType,
+            hasInlineStyles: !!(element.style && element.style.cssText),
+            isNested: !!element.parentElement && element.parentElement.tagName !== 'BODY'
         };
     }
 
@@ -330,17 +374,53 @@ export function getDesignModeClientScript(): string {
         return str.replace(/([A-Z])/g, '-$1').toLowerCase();
     }
     
+    // Map CSS properties to Tailwind class patterns they conflict with
+    const tailwindConflicts = {
+        'fontSize': /^text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/,
+        'fontWeight': /^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/,
+        'textAlign': /^text-(left|center|right|justify|start|end)$/,
+        'color': /^text-\\w+(-\\d+)?$/,
+        'backgroundColor': /^bg-\\w+(-\\d+)?$/,
+        'padding': /^p(|[tblrxy])?-\\d+$/,
+        'paddingTop': /^p(|t)-\\d+$/,
+        'paddingBottom': /^p(|b)-\\d+$/,
+        'paddingLeft': /^p(|l)-\\d+$/,
+        'paddingRight': /^p(|r)-\\d+$/,
+        'margin': /^m(|[tblrxy])?-\\d+$/,
+        'marginTop': /^m(|t)-\\d+$/,
+        'marginBottom': /^m(|b)-\\d+$/,
+        'marginLeft': /^m(|l)-\\d+$/,
+        'marginRight': /^m(|r)-\\d+$/,
+    };
+    
     // Apply preview styles DIRECTLY to the selected element (instant feedback)
     function applyPreviewStyle(sel, styles) {
-        // Use the stored selectedElement for instant application
-        // Fall back to querySelector if element not stored
-        const el = selectedElement || document.querySelector(sel);
+        // Priority 1: Use the cached selectedElement (instant, no lookup)
+        let el = selectedElement;
+        
+        if (!el) {
+            // Priority 2: Try direct element map lookup (reliable)
+            const idMatch = sel.match(/\\[data-vibesdk-id="([^"]+)"\\]/);
+            if (idMatch && window.__vibesdkElementMap) {
+                const trackingId = idMatch[1];
+                el = window.__vibesdkElementMap.get(trackingId);
+                if (el) {
+                    console.log('[VibeSDK] Found element via tracking ID:', trackingId);
+                }
+            }
+        }
+        
+        if (!el) {
+            // Priority 3: Fallback to querySelector
+            el = document.querySelector(sel);
+            console.log('[VibeSDK] Found element via querySelector:', !!el);
+        }
         
         console.log('[VibeSDK] applyPreviewStyle called', { 
             selector: sel, 
             styles: styles,
-            hasSelectedElement: !!selectedElement,
-            usingQuerySelector: !selectedElement && !!el,
+            elementTag: el?.tagName,
+            elementClassName: el?.className,
             elementFound: !!el
         });
         
@@ -349,23 +429,48 @@ export function getDesignModeClientScript(): string {
             return;
         }
         
-        // Store original styles for restoration
+        // Store original state for restoration
         if (!el.__vibesdk_orig) {
-            el.__vibesdk_orig = {};
+            el.__vibesdk_orig = {
+                styles: {},
+                className: el.className
+            };
         }
+        
+        // Get current classes
+        const classes = el.className.split(/\\s+/).filter(c => c);
+        const classesToRemove = [];
         
         // Apply each style directly to the element
         for (const prop in styles) {
             const kebabProp = toKebabCase(prop);
             const value = styles[prop];
             
-            // Store original value if not already stored
-            if (!(prop in el.__vibesdk_orig)) {
-                el.__vibesdk_orig[prop] = el.style.getPropertyValue(kebabProp) || '';
+            // Store original inline style value if not already stored
+            if (!(prop in el.__vibesdk_orig.styles)) {
+                el.__vibesdk_orig.styles[prop] = el.style.getPropertyValue(kebabProp) || '';
+            }
+            
+            // Remove conflicting Tailwind classes to prevent them from overriding our inline style
+            const conflictPattern = tailwindConflicts[prop];
+            if (conflictPattern) {
+                classes.forEach(cls => {
+                    if (conflictPattern.test(cls)) {
+                        classesToRemove.push(cls);
+                        console.log('[VibeSDK] Removing conflicting Tailwind class:', cls);
+                    }
+                });
             }
             
             console.log('[VibeSDK] Setting style:', kebabProp, '=', value);
             el.style.setProperty(kebabProp, value, 'important');
+        }
+        
+        // Remove conflicting classes
+        if (classesToRemove.length > 0) {
+            const remainingClasses = classes.filter(c => !classesToRemove.includes(c));
+            el.className = remainingClasses.join(' ');
+            console.log('[VibeSDK] Updated className:', el.className);
         }
         
         console.log('[VibeSDK] applyPreviewStyle complete, element style:', el.style.cssText);
@@ -377,15 +482,23 @@ export function getDesignModeClientScript(): string {
         console.log('[VibeSDK] clearPreviewStyle called', { selector: sel, hasElement: !!el });
         
         if (el && el.__vibesdk_orig) {
-            for (const prop in el.__vibesdk_orig) {
+            // Restore original inline styles
+            for (const prop in el.__vibesdk_orig.styles) {
                 const kebabProp = toKebabCase(prop);
-                const originalValue = el.__vibesdk_orig[prop];
+                const originalValue = el.__vibesdk_orig.styles[prop];
                 if (originalValue) {
                     el.style.setProperty(kebabProp, originalValue);
                 } else {
                     el.style.removeProperty(kebabProp);
                 }
             }
+            
+            // Restore original className
+            if (el.__vibesdk_orig.className !== undefined) {
+                el.className = el.__vibesdk_orig.className;
+                console.log('[VibeSDK] Restored className:', el.className);
+            }
+            
             delete el.__vibesdk_orig;
         }
     }

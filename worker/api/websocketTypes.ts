@@ -584,6 +584,10 @@ export type DesignModeStyleUpdateRequest = {
 	textContent?: string;
 	changes: DesignModeStyleChange[];
 	skipDeploy?: boolean;
+	/** CSS class string from the element */
+	className?: string;
+	/** Parsed Tailwind utility classes */
+	tailwindClasses?: string[];
 };
 
 /** Server response after style update */

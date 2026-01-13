@@ -44,6 +44,12 @@ export interface DesignModeElementData {
 	parentSelector?: string;
 	/** Child count for context */
 	childCount: number;
+	/** Element type for contextual design panels */
+	elementType?: 'text' | 'button' | 'input' | 'image' | 'container' | 'list' | 'generic';
+	/** Whether element has inline styles that might conflict */
+	hasInlineStyles?: boolean;
+	/** Whether element is nested inside another styled element */
+	isNested?: boolean;
 }
 
 /**
@@ -64,6 +70,9 @@ export interface DesignModeComputedStyles {
 	// Background
 	backgroundColor: string;
 	backgroundImage: string;
+	backgroundClip: string;
+	WebkitBackgroundClip: string;
+	WebkitTextFillColor: string;
 
 	// Spacing
 	marginTop: string;

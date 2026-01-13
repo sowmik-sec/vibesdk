@@ -150,7 +150,7 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 // Iframe is ready, enable design mode if it should be enabled
                 if (isEnabled) {
                     sendToIframe({ type: 'design_mode_enable' });
-                    
+
                     // Re-apply any pending preview styles after iframe reloads
                     if (selectedElement) {
                         const pendingStyles = previewStylesRef.current.get(selectedElement.selector);
@@ -360,6 +360,11 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 textContent: selectedElement.textContent,
                 changes: styleChanges,
                 skipDeploy: true, // Don't reload preview - keep inline styles visible
+                // Pass full sourceLocation so backend can use lineNumber for precise element location
+                sourceLocation: selectedElement.sourceLocation,
+                // Pass class names to help find the element when text is dynamic
+                className: selectedElement.className,
+                tailwindClasses: selectedElement.tailwindClasses,
             };
 
             console.log('[useDesignMode] Sending to WebSocket with skipDeploy:', messagePayload);

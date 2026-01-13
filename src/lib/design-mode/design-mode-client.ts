@@ -20,6 +20,8 @@ import { parseTailwindClasses } from './tailwind-utils';
 // State
 // ============================================================================
 
+console.log('[VibeSDK] Design mode client loaded - VERSION: 3.0 (CLIENT)');
+
 let isDesignModeActive = false;
 let selectedElement: HTMLElement | null = null;
 let hoveredElement: HTMLElement | null = null;
@@ -83,48 +85,40 @@ function cleanupOverlays(): void {
 // Element Data Extraction
 // ============================================================================
 
+// Global element map for direct lookup
+declare global {
+    interface Window {
+        __vibesdkElementMap?: Map<string, HTMLElement>;
+    }
+}
+
 /**
- * Generate a unique CSS selector path for an element
+ * Generate a stable selector using data-vibesdk-id attribute
  */
 function generateSelector(element: HTMLElement): string {
-    const path: string[] = [];
-    let current: HTMLElement | null = element;
-
-    while (current && current !== document.body && current !== document.documentElement) {
-        let selector = current.tagName.toLowerCase();
-
-        // Use ID if available and unique
-        if (current.id) {
-            selector = `#${CSS.escape(current.id)}`;
-            path.unshift(selector);
-            break;
+    console.log('[VibeSDK] ===== generateSelector called (CLIENT) =====');
+    console.log('[VibeSDK] Element:', element.tagName, 'className:', element.className);
+    
+    // ALWAYS assign a unique tracking ID
+    if (!element.dataset.vibesdkId) {
+        const trackingId = `el-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        element.dataset.vibesdkId = trackingId;
+        
+        // Store direct element reference in a global map for instant lookup
+        if (!window.__vibesdkElementMap) {
+            window.__vibesdkElementMap = new Map();
+            console.log('[VibeSDK] Created new element map');
         }
-
-        // Use classes if available
-        if (current.className && typeof current.className === 'string') {
-            const classes = current.className.split(/\s+/).filter(c => c && !c.startsWith('__vibesdk'));
-            if (classes.length > 0) {
-                selector += `.${classes.slice(0, 2).map(c => CSS.escape(c)).join('.')}`;
-            }
-        }
-
-        // Add nth-child for disambiguation
-        const parent = current.parentElement;
-        if (parent) {
-            const siblings = Array.from(parent.children).filter(
-                (child) => child.tagName === current!.tagName
-            );
-            if (siblings.length > 1) {
-                const index = siblings.indexOf(current) + 1;
-                selector += `:nth-of-type(${index})`;
-            }
-        }
-
-        path.unshift(selector);
-        current = current.parentElement;
+        window.__vibesdkElementMap.set(trackingId, element);
+        
+        console.log('[VibeSDK] Assigned NEW tracking ID:', trackingId, 'to', element.tagName, element.className);
+    } else {
+        console.log('[VibeSDK] Element already has tracking ID:', element.dataset.vibesdkId);
     }
-
-    return path.join(' > ');
+    
+    const selector = `[data-vibesdk-id="${element.dataset.vibesdkId}"]`;
+    console.log('[VibeSDK] Generated selector:', selector);
+    return selector;
 }
 
 /**
