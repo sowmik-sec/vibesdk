@@ -196,6 +196,26 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 }
                 break;
 
+            case 'design_mode_text_edit':
+                // Handle inline text edit from double-click (includes sourceLocation)
+                console.log('[DesignMode] Inline text edit received:', {
+                    selector: message.selector,
+                    oldText: message.oldText?.slice(0, 30),
+                    newText: message.newText?.slice(0, 30),
+                    sourceLocation: message.sourceLocation
+                });
+                if (websocket && websocket.readyState === 1) {
+                    websocket.send(JSON.stringify({
+                        type: 'design_mode_text_update',
+                        selector: message.selector,
+                        filePath: message.sourceLocation?.filePath,
+                        sourceLocation: message.sourceLocation,
+                        oldText: message.oldText,
+                        newText: message.newText,
+                    }));
+                }
+                break;
+
             case 'design_mode_error':
                 console.error('Design mode error:', message.error, message.context);
                 setSyncError(message.error);

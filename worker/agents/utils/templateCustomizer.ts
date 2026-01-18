@@ -408,6 +408,134 @@ function injectDesignModeScript(html: string): string {
     window.parent.postMessage({ prefix: PREFIX, type: "design_mode_element_selected", element: data }, "*");
   }
   
+  // ========== INLINE TEXT EDITING ==========
+  let textEditOverlay = null;
+  let isEditingText = false;
+  
+  // Check if element contains only static text (no JSX expressions)
+  function isStaticTextElement(el) {
+    if (!el) return false;
+    const tag = el.tagName.toLowerCase();
+    const textTags = ["h1","h2","h3","h4","h5","h6","p","span","label","a","button","li","td","th"];
+    if (!textTags.includes(tag)) return false;
+    // Check if it has only text content (no child elements with text)
+    const text = el.textContent || "";
+    if (!text.trim()) return false;
+    // If element has children that contain text, might be complex
+    for (let child of el.children) {
+      if (child.textContent && child.textContent.trim()) return false;
+    }
+    return true;
+  }
+  
+  async function handleDblClick(e) {
+    if (!isActive || isEditingText) return;
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || !isStaticTextElement(el)) {
+      console.log("[VibeSDK] Double-click ignored: not a static text element");
+      return;
+    }
+    
+    console.log("[VibeSDK] Double-click on text element:", el.tagName, el.textContent?.substring(0, 30));
+    
+    // Create text edit overlay
+    isEditingText = true;
+    const rect = el.getBoundingClientRect();
+    const originalText = el.textContent || "";
+    
+    // Create overlay input
+    textEditOverlay = document.createElement("div");
+    textEditOverlay.id = "__vibesdk_text_edit";
+    textEditOverlay.style.cssText = "position:fixed;left:" + (rect.left - 2) + "px;top:" + (rect.top - 2) + "px;min-width:" + Math.max(rect.width + 4, 100) + "px;min-height:" + (rect.height + 4) + "px;z-index:1000001;background:white;border:2px solid #3b82f6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);padding:0;margin:0;";
+    
+    const input = document.createElement("textarea");
+    input.value = originalText;
+    const cs = getComputedStyle(el);
+    input.style.cssText = "width:100%;height:100%;min-height:" + rect.height + "px;border:none;outline:none;resize:both;font-family:" + cs.fontFamily + ";font-size:" + cs.fontSize + ";font-weight:" + cs.fontWeight + ";line-height:" + cs.lineHeight + ";color:black;padding:4px 6px;margin:0;box-sizing:border-box;";
+    textEditOverlay.appendChild(input);
+    document.body.appendChild(textEditOverlay);
+    
+    // Focus and select all
+    input.focus();
+    input.select();
+    
+    // Store context for commit
+    const context = {
+      element: el,
+      originalText: originalText,
+      selector: genSelector(el),
+      sourceLocation: null
+    };
+    
+    // Get source location
+    if (getStack) {
+      try {
+        const stack = await getStack(el);
+        if (stack && stack.length > 0 && stack[0].source) {
+          let filePath = stack[0].source.fileName || "";
+          const match = filePath.match(/\\/(?:workspace\\/[^\\/]+|app)\\/(.+)/);
+          if (match) filePath = match[1];
+          context.sourceLocation = { 
+            filePath, 
+            lineNumber: stack[0].source.lineNumber || 0 
+          };
+        }
+      } catch (err) { console.warn("[VibeSDK] getStack failed:", err); }
+    }
+    
+    function commitEdit() {
+      const newText = input.value;
+      cleanup();
+      
+      if (newText !== context.originalText && newText.trim()) {
+        // Update DOM immediately
+        context.element.textContent = newText;
+        
+        // Send to parent for code update
+        console.log("[VibeSDK] Committing text edit:", { old: context.originalText, new: newText });
+        window.parent.postMessage({
+          prefix: PREFIX,
+          type: "design_mode_text_edit",
+          selector: context.selector,
+          oldText: context.originalText,
+          newText: newText,
+          sourceLocation: context.sourceLocation
+        }, "*");
+      }
+    }
+    
+    function cancelEdit() {
+      cleanup();
+      console.log("[VibeSDK] Text edit cancelled");
+    }
+    
+    function cleanup() {
+      if (textEditOverlay) {
+        textEditOverlay.remove();
+        textEditOverlay = null;
+      }
+      isEditingText = false;
+    }
+    
+    input.addEventListener("keydown", function(ke) {
+      if (ke.key === "Enter" && !ke.shiftKey) {
+        ke.preventDefault();
+        commitEdit();
+      } else if (ke.key === "Escape") {
+        ke.preventDefault();
+        cancelEdit();
+      }
+    });
+    
+    input.addEventListener("blur", function() {
+      // Small delay to allow Escape to cancel first
+      setTimeout(() => { if (isEditingText) commitEdit(); }, 100);
+    });
+  }
+  
   // Helper: Convert camelCase to kebab-case for CSS properties
   function toKebabCase(str) {
     return str.replace(/([A-Z])/g, '-$1').toLowerCase();
@@ -448,6 +576,7 @@ function injectDesignModeScript(html: string): string {
     createOverlays();
     document.addEventListener("mousemove", handleMouseMove, true);
     document.addEventListener("click", handleClick, true);
+    document.addEventListener("dblclick", handleDblClick, true);
     document.addEventListener("mouseleave", handleMouseLeave);
     window.addEventListener("scroll", updateSelectionOverlay, true);
     console.log("[VibeSDK] Design mode activated with react-grab");
@@ -459,6 +588,7 @@ function injectDesignModeScript(html: string): string {
     if (selectionOverlay) selectionOverlay.style.display = "none";
     document.removeEventListener("mousemove", handleMouseMove, true);
     document.removeEventListener("click", handleClick, true);
+    document.removeEventListener("dblclick", handleDblClick, true);
     document.removeEventListener("mouseleave", handleMouseLeave);
     window.removeEventListener("scroll", updateSelectionOverlay, true);
     selectedElement = null;

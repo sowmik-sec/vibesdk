@@ -214,6 +214,18 @@ export interface DesignModeErrorMessage {
 	context?: string;
 }
 
+/** Inline text edit message from double-click editing */
+export interface DesignModeInlineTextEditMessage {
+	type: 'design_mode_text_edit';
+	selector: string;
+	oldText: string;
+	newText: string;
+	sourceLocation?: {
+		filePath: string;
+		lineNumber: number;
+	};
+}
+
 /** Messages sent from iframe to parent window */
 export type DesignModeIframeMessage =
 	| DesignModeReadyMessage
@@ -221,6 +233,7 @@ export type DesignModeIframeMessage =
 	| DesignModeElementSelectedMessage
 	| DesignModeElementDeselectedMessage
 	| DesignModeTextEditedMessage
+	| DesignModeInlineTextEditMessage
 	| DesignModeErrorMessage;
 
 // ============================================================================
