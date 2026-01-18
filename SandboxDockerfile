@@ -3,6 +3,7 @@
 # FROM node:20-bookworm-slim
 FROM --platform=linux/amd64 docker.io/cloudflare/sandbox:0.5.6
 
+
 # Install system dependencies
 # procps: required for process monitoring
 # python3: required for some node_gyp builds
@@ -19,19 +20,24 @@ RUN apt-get update && apt-get install -y \
     jq \
     file \
     findutils \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
 
 # Reset entrypoint to avoid node image defaults
 ENTRYPOINT []
+
 
 # Install Bun manually for fast package management
 ENV BUN_INSTALL=/usr/local
 RUN curl -fsSL https://bun.sh/install | bash
 
+
 # Configure Bun for optimal caching
 ENV BUN_INSTALL_CACHE_DIR=/workspace/.bun-cache
 ENV CLI_DATA_DIR=/workspace/data
 RUN mkdir -p /workspace/.bun-cache && chmod 777 /workspace/.bun-cache
+
 
 # Pre-install common packages to warm cache
 WORKDIR /workspace/warm-cache
@@ -39,14 +45,15 @@ RUN echo '{"dependencies":{"react":"^19","react-dom":"^19","vite":"^6","@vitejs/
     bun install --no-save && \
     rm -rf /workspace/warm-cache
 
+
 # Install cloudflared
-ARG TARGETARCH
-RUN if [ "$TARGETARCH" = "amd64" ]; then ARCH="amd64"; \
-    elif [ "$TARGETARCH" = "arm64" ]; then ARCH="arm64"; \
-    else ARCH="amd64"; fi && \
-    curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb && \
+RUN ARCH=$(dpkg --print-architecture) && \
+    echo "Detected architecture: ${ARCH}" && \
+    echo "Downloading cloudflared for ${ARCH}..." && \
+    curl -f -L --output cloudflared.deb "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb" && \
     dpkg -i cloudflared.deb && \
     rm cloudflared.deb
+
 
 # Setup Agent (Extracted from cloudflare/sandbox)
 WORKDIR /container-server
@@ -55,19 +62,25 @@ COPY agent-extraction/dist ./dist
 COPY agent-extraction/startup.sh ./agent-startup.sh
 RUN chmod +x ./agent-startup.sh
 
+
 # Setup workspace (User tools)
 COPY container/ /workspace/container/
 WORKDIR /workspace/container
 RUN bun install && bun run build && chmod +x startup.sh
 
+
 # Setup CLI alias
 RUN ln -sf /workspace/container/cli-tools.ts /usr/local/bin/monitor-cli
+
 
 # Expose port (Agent listens on 3000)
 EXPOSE 3000
 
+
 # Set working directory for app
 WORKDIR /container-server
 
+
 # Start container (Run user startup script which should invoke agent)
 CMD ["/workspace/container/startup.sh"]
+
