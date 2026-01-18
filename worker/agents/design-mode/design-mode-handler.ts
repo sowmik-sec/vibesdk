@@ -595,9 +595,9 @@ export async function handleDesignModeAIPrompt(
 // ============================================================================
 // Text Update Handler
 // ============================================================================
-
 /**
  * Handle text content update requests
+ * Uses DIRECT string replacement - no AI involved for fast, deterministic updates
  */
 export async function handleDesignModeTextUpdate(
     agent: ICodingAgent,
@@ -606,20 +606,34 @@ export async function handleDesignModeTextUpdate(
     logger: StructuredLogger
 ): Promise<void> {
     const { selector, filePath, oldText, newText } = request;
+    const sourceLocation = (request as any).sourceLocation;
 
-    logger.info('Design mode text update', {
+    logger.info('Design mode text update (direct replacement)', {
         selector,
         filePath,
-        oldTextLength: oldText.length,
-        newTextLength: newText.length,
+        sourceLocation,
+        oldTextLength: oldText?.length || 0,
+        newTextLength: newText?.length || 0,
     });
 
+    // Validate inputs
+    if (!oldText || !newText) {
+        connection.send(JSON.stringify({
+            type: 'design_mode_style_updated',
+            success: false,
+            selector,
+            error: 'Missing oldText or newText',
+        }));
+        return;
+    }
+
     try {
-        // Normalize the path to convert container paths to relative paths
-        const rawFilePath = filePath || await findFileForSelector(agent, selector, logger);
+        // 1. Normalize the file path
+        const rawFilePath = filePath || sourceLocation?.filePath || await findFileForSelector(agent, selector, logger, oldText);
         const targetFilePath = rawFilePath ? normalizeFilePath(rawFilePath) : null;
 
         if (!targetFilePath) {
+            logger.error('Could not determine file path for text update', { selector, filePath, sourceLocation });
             connection.send(JSON.stringify({
                 type: 'design_mode_style_updated',
                 success: false,
@@ -629,39 +643,111 @@ export async function handleDesignModeTextUpdate(
             return;
         }
 
-        // Create text update instruction
-        const issues = [
-            `Update text content in element "${selector}":`,
-            `- Find the text "${oldText}"`,
-            `- Replace it with "${newText}"`,
-            '',
-            'Important:',
-            '- Only change the text content, not any surrounding code',
-            '- Preserve any JSX expressions if present',
-            '- Handle text that may span multiple lines',
-        ];
+        logger.info('Text update target file', { targetFilePath });
 
-        const result = await agent.regenerateFileByPath(targetFilePath, issues);
-
-        if ('error' in result) {
+        // 2. Get the current file content
+        const file = (agent as any).fileManager?.getGeneratedFile(targetFilePath);
+        if (!file || !file.fileContents) {
+            logger.error('File not found in generated files', { targetFilePath });
             connection.send(JSON.stringify({
                 type: 'design_mode_style_updated',
                 success: false,
                 selector,
-                error: result.error,
+                error: `File not found: ${targetFilePath}`,
             }));
             return;
         }
 
+        const originalContent = file.fileContents;
+
+        // 3. Check if the old text exists in the file
+        if (!originalContent.includes(oldText)) {
+            logger.warn('Old text not found in file', {
+                targetFilePath,
+                oldTextPreview: oldText.slice(0, 50),
+                searchingFor: oldText
+            });
+            connection.send(JSON.stringify({
+                type: 'design_mode_style_updated',
+                success: false,
+                selector,
+                error: 'Could not find the original text in the source file. The text may be dynamic.',
+            }));
+            return;
+        }
+
+        // 4. Direct string replacement
+        const updatedContent = originalContent.replace(oldText, newText);
+
+        if (updatedContent === originalContent) {
+            logger.warn('No changes made to file', { targetFilePath });
+            connection.send(JSON.stringify({
+                type: 'design_mode_style_updated',
+                success: true,
+                selector,
+                filePath: targetFilePath,
+            }));
+            return;
+        }
+
+        logger.info('Text replacement successful', {
+            targetFilePath,
+            contentLengthBefore: originalContent.length,
+            contentLengthAfter: updatedContent.length,
+        });
+
+        // 5. Save the modified file
+        const modifiedFile = {
+            filePath: targetFilePath,
+            fileContents: updatedContent,
+            filePurpose: file.filePurpose || ''
+        };
+
+        const saveFiles = (agent as any).fileManager?.saveGeneratedFile;
+        if (saveFiles) {
+            await (agent as any).fileManager.saveGeneratedFile(modifiedFile, `text: inline edit in ${targetFilePath}`);
+            logger.info('File saved successfully', { targetFilePath });
+        } else {
+            logger.error('FileManager not accessible');
+            connection.send(JSON.stringify({
+                type: 'design_mode_style_updated',
+                success: false,
+                selector,
+                error: 'FileManager not accessible',
+            }));
+            return;
+        }
+
+        // 6. Deploy to sandbox: SKIP for text updates
+        // The client already updated the DOM optimistically.
+        // We just save the file for persistence.
+        /*
+        const deployToSandbox = (agent as any).deployToSandbox;
+        if (deployToSandbox) {
+            logger.info('Deploying updated file to sandbox');
+            try {
+                await deployToSandbox([modifiedFile]);
+            } catch (deployError) {
+                logger.warn('Deploy to sandbox failed', {
+                    error: deployError instanceof Error ? deployError.message : 'Unknown'
+                });
+                // Continue anyway - the file is saved
+            }
+        }
+        */
+
+        // 7. Send success response
         connection.send(JSON.stringify({
             type: 'design_mode_style_updated',
             success: true,
             selector,
             filePath: targetFilePath,
         }));
+
     } catch (error) {
         logger.error('Failed to handle text update', {
             error: error instanceof Error ? error.message : 'Unknown error',
+            stack: error instanceof Error ? error.stack : undefined,
         });
 
         connection.send(JSON.stringify({
