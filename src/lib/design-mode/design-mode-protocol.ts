@@ -60,6 +60,7 @@ export interface DesignModeComputedStyles {
 	fontFamily: string;
 	fontSize: string;
 	fontWeight: string;
+	fontStyle: string;
 	lineHeight: string;
 	letterSpacing: string;
 	textAlign: string;

@@ -1,5 +1,5 @@
 /**
- * Design Mode Panel
+ * Design Mode Panel - v0 Style
  * Main visual property editor panel for design mode
  */
 
@@ -9,23 +9,27 @@ import {
     ChevronRight,
     Type,
     Palette,
+    PaintBucket,
+    LayoutGrid,
     Square,
-    Box,
-    Layers,
+    Eye,
     Sparkles,
     MousePointer2,
     Code,
     Undo2,
     Redo2,
     X,
+    Cloudy,
 } from 'lucide-react';
 import type { DesignModeElementData } from '@/lib/design-mode/design-mode-protocol';
-import { ColorControl } from './style-controls/color-control';
-import { SpacingControl } from './style-controls/spacing-control';
+import { ContentControl } from './style-controls/content-control';
 import { TypographyControl } from './style-controls/typography-control';
-import { BorderControl } from './style-controls/border-control';
-import { ShadowControl } from './style-controls/shadow-control';
+import { ColorControl } from './style-controls/color-control';
+import { BackgroundControl } from './style-controls/background-control';
 import { LayoutControl } from './style-controls/layout-control';
+import { BorderControl } from './style-controls/border-control';
+import { AppearanceControl } from './style-controls/appearance-control';
+import { ShadowControl } from './style-controls/shadow-control';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -38,6 +42,8 @@ export interface DesignModePanelProps {
     onStyleChange: (property: string, value: string) => void;
     onStylePreview: (property: string, value: string) => void;
     onClearPreview: () => void;
+    onTextChange?: (text: string) => void;
+    onTextCommit?: (text: string) => void;
     onAIPrompt: (prompt: string) => void;
     onGoToCode: () => void;
     onUndo: () => void;
@@ -163,6 +169,15 @@ function AIPromptInput({ onSubmit, disabled }: { onSubmit: (prompt: string) => v
 }
 
 // ============================================================================
+// Helper: Check if element is text element
+// ============================================================================
+
+function isTextElement(tagName: string): boolean {
+    const textTags = ['P', 'SPAN', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'A', 'BUTTON', 'LABEL', 'LI', 'TD', 'TH', 'FIGCAPTION', 'BLOCKQUOTE'];
+    return textTags.includes(tagName.toUpperCase());
+}
+
+// ============================================================================
 // Main Panel Component
 // ============================================================================
 
@@ -171,6 +186,8 @@ export function DesignModePanel({
     onStyleChange,
     onStylePreview,
     onClearPreview,
+    onTextChange,
+    onTextCommit,
     onAIPrompt,
     onGoToCode,
     onUndo,
@@ -182,14 +199,11 @@ export function DesignModePanel({
     hasPendingChanges = false,
     onRefreshPreview,
 }: DesignModePanelProps) {
-    // Handle style changes with preview
+    // Handle style changes with commit flag
     const handleStyleChange = useCallback((property: string, value: string, commit: boolean) => {
-        console.log('[DesignModePanel] handleStyleChange called', { property, value, commit });
         if (commit) {
-            console.log('[DesignModePanel] Calling onStyleChange (commit)');
             onStyleChange(property, value);
         } else {
-            console.log('[DesignModePanel] Calling onStylePreview (preview)');
             onStylePreview(property, value);
         }
     }, [onStyleChange, onStylePreview]);
@@ -221,6 +235,8 @@ export function DesignModePanel({
             </div>
         );
     }
+
+    const showContentEditor = isTextElement(selectedElement.tagName) && onTextChange && onTextCommit;
 
     return (
         <div className="h-full bg-bg-1 flex flex-col">
@@ -296,33 +312,58 @@ export function DesignModePanel({
                 {/* AI Prompt */}
                 <AIPromptInput onSubmit={onAIPrompt} disabled={isSyncing} />
 
+                {/* Content Editor - Only for text elements */}
+                {showContentEditor && (
+                    <div className="px-3 py-3 border-b border-text/10">
+                        <ContentControl
+                            textContent={selectedElement.textContent || ''}
+                            onTextChange={onTextChange!}
+                            onTextCommit={onTextCommit!}
+                        />
+                    </div>
+                )}
+
                 {/* Typography */}
                 <Section title="Typography" icon={Type}>
                     <TypographyControl
                         styles={selectedElement.computedStyles}
                         tailwindClasses={selectedElement.tailwindClasses}
                         onChange={handleStyleChange}
-                        onBlur={onClearPreview}
+                        onPreview={onStylePreview}
+                        onClearPreview={onClearPreview}
                     />
                 </Section>
 
-                {/* Colors */}
-                <Section title="Colors" icon={Palette}>
+                {/* Color */}
+                <Section title="Color" icon={Palette}>
                     <ColorControl
                         styles={selectedElement.computedStyles}
                         tailwindClasses={selectedElement.tailwindClasses}
                         onChange={handleStyleChange}
-                        onBlur={onClearPreview}
+                        onPreview={onStylePreview}
+                        onClearPreview={onClearPreview}
                     />
                 </Section>
 
-                {/* Spacing */}
-                <Section title="Spacing" icon={Box}>
-                    <SpacingControl
+                {/* Background */}
+                <Section title="Background" icon={PaintBucket}>
+                    <BackgroundControl
                         styles={selectedElement.computedStyles}
                         tailwindClasses={selectedElement.tailwindClasses}
                         onChange={handleStyleChange}
-                        onBlur={onClearPreview}
+                        onPreview={onStylePreview}
+                        onClearPreview={onClearPreview}
+                    />
+                </Section>
+
+                {/* Layout */}
+                <Section title="Layout" icon={LayoutGrid}>
+                    <LayoutControl
+                        styles={selectedElement.computedStyles}
+                        tailwindClasses={selectedElement.tailwindClasses}
+                        onChange={handleStyleChange}
+                        onPreview={onStylePreview}
+                        onClearPreview={onClearPreview}
                     />
                 </Section>
 
@@ -332,27 +373,30 @@ export function DesignModePanel({
                         styles={selectedElement.computedStyles}
                         tailwindClasses={selectedElement.tailwindClasses}
                         onChange={handleStyleChange}
-                        onBlur={onClearPreview}
+                        onPreview={onStylePreview}
+                        onClearPreview={onClearPreview}
                     />
                 </Section>
 
-                {/* Effects */}
-                <Section title="Effects" icon={Sparkles} defaultOpen={false}>
+                {/* Appearance */}
+                <Section title="Appearance" icon={Eye}>
+                    <AppearanceControl
+                        styles={selectedElement.computedStyles}
+                        tailwindClasses={selectedElement.tailwindClasses}
+                        onChange={handleStyleChange}
+                        onPreview={onStylePreview}
+                        onClearPreview={onClearPreview}
+                    />
+                </Section>
+
+                {/* Shadow */}
+                <Section title="Shadow" icon={Cloudy} defaultOpen={false}>
                     <ShadowControl
                         styles={selectedElement.computedStyles}
                         tailwindClasses={selectedElement.tailwindClasses}
                         onChange={handleStyleChange}
-                        onBlur={onClearPreview}
-                    />
-                </Section>
-
-                {/* Layout */}
-                <Section title="Layout" icon={Layers} defaultOpen={false}>
-                    <LayoutControl
-                        styles={selectedElement.computedStyles}
-                        tailwindClasses={selectedElement.tailwindClasses}
-                        onChange={handleStyleChange}
-                        onBlur={onClearPreview}
+                        onPreview={onStylePreview}
+                        onClearPreview={onClearPreview}
                     />
                 </Section>
             </div>

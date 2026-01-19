@@ -1,208 +1,264 @@
 /**
- * Border Control
- * Border width, color, style, and radius
+ * Border Control - v0 Style
+ * Border color, style, and width with expand functionality
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import { Maximize2, Lock, Unlock } from 'lucide-react';
 import type { DesignModeComputedStyles } from '@/lib/design-mode/design-mode-protocol';
+import { DropdownControl, type DropdownOption } from './dropdown-control';
+import { cn } from '@/lib/utils';
 
 interface BorderControlProps {
     styles: DesignModeComputedStyles;
     tailwindClasses: string[];
     onChange: (property: string, value: string, commit: boolean) => void;
-    onBlur: () => void;
+    onPreview: (property: string, value: string) => void;
+    onClearPreview: () => void;
 }
 
-const BORDER_WIDTHS = [
-    { label: '0', value: '0px', tw: 'border-0' },
-    { label: '1', value: '1px', tw: 'border' },
-    { label: '2', value: '2px', tw: 'border-2' },
-    { label: '4', value: '4px', tw: 'border-4' },
-    { label: '8', value: '8px', tw: 'border-8' },
+// Border colors
+const BORDER_COLORS: DropdownOption[] = [
+    { label: 'transparent', value: 'transparent', color: 'transparent' },
+    { label: 'black', value: '#000000', color: '#000000' },
+    { label: 'white', value: '#ffffff', color: '#ffffff' },
+    { label: 'gray-200', value: '#e5e7eb', color: '#e5e7eb' },
+    { label: 'gray-300', value: '#d1d5db', color: '#d1d5db' },
+    { label: 'gray-400', value: '#9ca3af', color: '#9ca3af' },
+    { label: 'slate-200', value: '#e2e8f0', color: '#e2e8f0' },
+    { label: 'slate-300', value: '#cbd5e1', color: '#cbd5e1' },
+    { label: 'blue-500', value: '#3b82f6', color: '#3b82f6' },
+    { label: 'red-500', value: '#ef4444', color: '#ef4444' },
+    { label: 'green-500', value: '#22c55e', color: '#22c55e' },
+    { label: 'purple-500', value: '#a855f7', color: '#a855f7' },
 ];
 
-const BORDER_STYLES = [
-    { label: 'Solid', value: 'solid', tw: 'border-solid' },
-    { label: 'Dashed', value: 'dashed', tw: 'border-dashed' },
-    { label: 'Dotted', value: 'dotted', tw: 'border-dotted' },
-    { label: 'Double', value: 'double', tw: 'border-double' },
-    { label: 'None', value: 'none', tw: 'border-none' },
+// Border styles
+const BORDER_STYLES: DropdownOption[] = [
+    { label: 'Default', value: 'solid' },
+    { label: 'Dashed', value: 'dashed' },
+    { label: 'Dotted', value: 'dotted' },
+    { label: 'Double', value: 'double' },
+    { label: 'None', value: 'none' },
 ];
 
-const BORDER_RADII = [
-    { label: 'None', value: '0px', tw: 'rounded-none' },
-    { label: 'sm', value: '0.125rem', tw: 'rounded-sm' },
-    { label: 'Default', value: '0.25rem', tw: 'rounded' },
-    { label: 'md', value: '0.375rem', tw: 'rounded-md' },
-    { label: 'lg', value: '0.5rem', tw: 'rounded-lg' },
-    { label: 'xl', value: '0.75rem', tw: 'rounded-xl' },
-    { label: '2xl', value: '1rem', tw: 'rounded-2xl' },
-    { label: '3xl', value: '1.5rem', tw: 'rounded-3xl' },
-    { label: 'Full', value: '9999px', tw: 'rounded-full' },
+// Border widths
+const BORDER_WIDTHS: DropdownOption[] = [
+    { label: '0px', value: '0px' },
+    { label: '1px', value: '1px' },
+    { label: '2px', value: '2px' },
+    { label: '4px', value: '4px' },
+    { label: '8px', value: '8px' },
 ];
 
-const COMMON_BORDER_COLORS = [
-    { name: 'transparent', hex: 'transparent' },
-    { name: 'black', hex: '#000000' },
-    { name: 'white', hex: '#ffffff' },
-    { name: 'gray-200', hex: '#e5e7eb' },
-    { name: 'gray-300', hex: '#d1d5db' },
-    { name: 'gray-400', hex: '#9ca3af' },
-    { name: 'blue-500', hex: '#3b82f6' },
-    { name: 'red-500', hex: '#ef4444' },
-    { name: 'green-500', hex: '#22c55e' },
-];
+// Icons for border sides
+const TopIcon = () => (
+    <svg className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="3" y="2" width="10" height="12" rx="1" />
+        <line x1="5" y1="3" x2="11" y2="3" strokeWidth="2" />
+    </svg>
+);
 
-export function BorderControl({ styles, tailwindClasses, onChange, onBlur }: BorderControlProps) {
-    const [showColorPicker, setShowColorPicker] = useState(false);
+const RightIcon = () => (
+    <svg className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="2" y="3" width="12" height="10" rx="1" />
+        <line x1="13" y1="5" x2="13" y2="11" strokeWidth="2" />
+    </svg>
+);
 
-    // Get current border width (use top as representative)
-    const currentWidth = useMemo(() => {
-        const widthClass = tailwindClasses.find(c => c.match(/^border(-[0248])?$/));
-        return BORDER_WIDTHS.find(w => w.tw === widthClass) ||
-            BORDER_WIDTHS.find(w => w.value === styles.borderTopWidth);
-    }, [tailwindClasses, styles.borderTopWidth]);
+const BottomIcon = () => (
+    <svg className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="3" y="2" width="10" height="12" rx="1" />
+        <line x1="5" y1="13" x2="11" y2="13" strokeWidth="2" />
+    </svg>
+);
 
-    // Get current border style
+const LeftIcon = () => (
+    <svg className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="2" y="3" width="12" height="10" rx="1" />
+        <line x1="3" y1="5" x2="3" y2="11" strokeWidth="2" />
+    </svg>
+);
+
+const AllIcon = () => (
+    <svg className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="3" width="10" height="10" rx="1" />
+    </svg>
+);
+
+export function BorderControl({
+    styles,
+    tailwindClasses: _tailwindClasses,
+    onChange,
+    onPreview,
+    onClearPreview,
+}: BorderControlProps) {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    // Current values
+    const currentColor = useMemo(() => {
+        const match = BORDER_COLORS.find(c => c.value === styles.borderTopColor);
+        return match?.value || styles.borderTopColor || 'transparent';
+    }, [styles.borderTopColor]);
+
     const currentStyle = useMemo(() => {
-        const styleClass = tailwindClasses.find(c => c.match(/^border-(solid|dashed|dotted|double|none)$/));
-        return BORDER_STYLES.find(s => s.tw === styleClass) ||
-            BORDER_STYLES.find(s => s.value === styles.borderStyle);
-    }, [tailwindClasses, styles.borderStyle]);
+        return styles.borderStyle || 'solid';
+    }, [styles.borderStyle]);
 
-    // Get current border radius (use top-left as representative)
-    const currentRadius = useMemo(() => {
-        const radiusClass = tailwindClasses.find(c => c.match(/^rounded(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/));
-        return BORDER_RADII.find(r => r.tw === radiusClass) ||
-            BORDER_RADII.find(r => r.value === styles.borderTopLeftRadius);
-    }, [tailwindClasses, styles.borderTopLeftRadius]);
+    const borderWidths = useMemo(() => ({
+        top: styles.borderTopWidth || '0px',
+        right: styles.borderRightWidth || '0px',
+        bottom: styles.borderBottomWidth || '0px',
+        left: styles.borderLeftWidth || '0px',
+    }), [styles.borderTopWidth, styles.borderRightWidth, styles.borderBottomWidth, styles.borderLeftWidth]);
 
-    const handleWidthChange = useCallback((value: string) => {
-        // Apply to all four sides
-        onChange('borderTopWidth', value, true);
-        onChange('borderRightWidth', value, true);
-        onChange('borderBottomWidth', value, true);
-        onChange('borderLeftWidth', value, true);
+    const allSameWidth = borderWidths.top === borderWidths.right &&
+        borderWidths.right === borderWidths.bottom &&
+        borderWidths.bottom === borderWidths.left;
+
+    // Handlers
+    const handleColorChange = useCallback((value: string, commit: boolean) => {
+        onChange('borderTopColor', value, commit);
+        onChange('borderRightColor', value, commit);
+        onChange('borderBottomColor', value, commit);
+        onChange('borderLeftColor', value, commit);
     }, [onChange]);
 
-    const handleStyleChange = useCallback((value: string) => {
-        onChange('borderStyle', value, true);
+    const handleStyleChange = useCallback((value: string, commit: boolean) => {
+        onChange('borderStyle', value, commit);
     }, [onChange]);
 
-    const handleRadiusChange = useCallback((value: string) => {
-        // Apply to all four corners
-        onChange('borderTopLeftRadius', value, true);
-        onChange('borderTopRightRadius', value, true);
-        onChange('borderBottomRightRadius', value, true);
-        onChange('borderBottomLeftRadius', value, true);
+    const handleWidthChange = useCallback((side: string, value: string, commit: boolean) => {
+        if (side === 'all') {
+            onChange('borderTopWidth', value, commit);
+            onChange('borderRightWidth', value, commit);
+            onChange('borderBottomWidth', value, commit);
+            onChange('borderLeftWidth', value, commit);
+        } else {
+            onChange(`border${side.charAt(0).toUpperCase() + side.slice(1)}Width`, value, commit);
+        }
     }, [onChange]);
 
-    const handleColorChange = useCallback((color: string) => {
-        // Apply to all four sides
-        onChange('borderTopColor', color, true);
-        onChange('borderRightColor', color, true);
-        onChange('borderBottomColor', color, true);
-        onChange('borderLeftColor', color, true);
-        setShowColorPicker(false);
-    }, [onChange]);
+    const handleWidthPreview = useCallback((side: string, value: string) => {
+        if (side === 'all') {
+            onPreview('borderTopWidth', value);
+            onPreview('borderRightWidth', value);
+            onPreview('borderBottomWidth', value);
+            onPreview('borderLeftWidth', value);
+        } else {
+            onPreview(`border${side.charAt(0).toUpperCase() + side.slice(1)}Width`, value);
+        }
+    }, [onPreview]);
 
     return (
         <div className="space-y-3">
+            {/* Border Color & Style */}
+            <div className="grid grid-cols-2 gap-2">
+                <DropdownControl
+                    options={BORDER_COLORS}
+                    value={currentColor}
+                    onChange={handleColorChange}
+                    onHoverStart={(val) => {
+                        onPreview('borderTopColor', val);
+                        onPreview('borderRightColor', val);
+                        onPreview('borderBottomColor', val);
+                        onPreview('borderLeftColor', val);
+                    }}
+                    onHoverEnd={onClearPreview}
+                    showColorSwatch
+                />
+                <DropdownControl
+                    options={BORDER_STYLES}
+                    value={currentStyle}
+                    onChange={handleStyleChange}
+                    onHoverStart={(val) => onPreview('borderStyle', val)}
+                    onHoverEnd={onClearPreview}
+                />
+            </div>
+
             {/* Border Width */}
-            <div>
-                <label className="block text-xs text-text-primary/60 mb-1">Width</label>
-                <div className="flex gap-1">
-                    {BORDER_WIDTHS.map(width => (
-                        <button
-                            key={width.tw}
-                            onClick={() => handleWidthChange(width.value)}
-                            className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${currentWidth?.value === width.value
-                                ? 'bg-accent text-white'
-                                : 'bg-bg-3 text-text-primary hover:bg-bg-2'
-                                }`}
-                        >
-                            {width.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Border Style */}
-            <div>
-                <label className="block text-xs text-text-primary/60 mb-1">Style</label>
-                <select
-                    value={currentStyle?.value || 'solid'}
-                    onChange={(e) => handleStyleChange(e.target.value)}
-                    onBlur={onBlur}
-                    className="w-full px-2 py-1.5 text-sm bg-bg-3 border border-text/10 rounded-md text-text-primary focus:outline-none focus:border-accent"
-                >
-                    {BORDER_STYLES.map(style => (
-                        <option key={style.value} value={style.value}>
-                            {style.label}
-                        </option>
-                    ))}
-                </select>
-            </div>
-
-            {/* Border Color */}
-            <div>
-                <label className="block text-xs text-text-primary/60 mb-1">Color</label>
-                <div className="relative">
-                    <button
-                        onClick={() => setShowColorPicker(!showColorPicker)}
-                        className="w-full flex items-center gap-2 px-2 py-1.5 bg-bg-3 border border-text/10 rounded-md text-sm text-text-primary hover:bg-bg-2"
-                    >
-                        <div
-                            className="w-5 h-5 rounded border border-text/20"
-                            style={{ backgroundColor: styles.borderTopColor }}
-                        />
-                        <span className="flex-1 text-left truncate text-xs">
-                            {styles.borderTopColor}
-                        </span>
-                    </button>
-
-                    {showColorPicker && (
-                        <div className="absolute top-full left-0 right-0 mt-1 p-2 bg-bg-1 border border-text/10 rounded-lg shadow-lg z-50">
-                            <div className="flex flex-wrap gap-1">
-                                {COMMON_BORDER_COLORS.map(color => (
-                                    <button
-                                        key={color.name}
-                                        onClick={() => handleColorChange(color.hex)}
-                                        className="w-6 h-6 rounded border border-text/20 hover:ring-2 ring-accent"
-                                        style={{ backgroundColor: color.hex }}
-                                        title={color.name}
-                                    />
-                                ))}
-                            </div>
+            {isExpanded ? (
+                // Expanded: 4 inputs
+                <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                        <div className="flex items-center gap-1">
+                            <TopIcon />
+                            <DropdownControl
+                                options={BORDER_WIDTHS}
+                                value={borderWidths.top}
+                                onChange={(val, commit) => handleWidthChange('top', val, commit)}
+                                onHoverStart={(val) => handleWidthPreview('top', val)}
+                                onHoverEnd={onClearPreview}
+                                className="flex-1"
+                            />
                         </div>
-                    )}
+                        <div className="flex items-center gap-1">
+                            <RightIcon />
+                            <DropdownControl
+                                options={BORDER_WIDTHS}
+                                value={borderWidths.right}
+                                onChange={(val, commit) => handleWidthChange('right', val, commit)}
+                                onHoverStart={(val) => handleWidthPreview('right', val)}
+                                onHoverEnd={onClearPreview}
+                                className="flex-1"
+                            />
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <BottomIcon />
+                            <DropdownControl
+                                options={BORDER_WIDTHS}
+                                value={borderWidths.bottom}
+                                onChange={(val, commit) => handleWidthChange('bottom', val, commit)}
+                                onHoverStart={(val) => handleWidthPreview('bottom', val)}
+                                onHoverEnd={onClearPreview}
+                                className="flex-1"
+                            />
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <LeftIcon />
+                            <DropdownControl
+                                options={BORDER_WIDTHS}
+                                value={borderWidths.left}
+                                onChange={(val, commit) => handleWidthChange('left', val, commit)}
+                                onHoverStart={(val) => handleWidthPreview('left', val)}
+                                onHoverEnd={onClearPreview}
+                                className="flex-1"
+                            />
+                        </div>
+                    </div>
+                    <div className="flex justify-end">
+                        <button
+                            type="button"
+                            onClick={() => setIsExpanded(false)}
+                            className="p-1.5 bg-bg-3 text-text-primary/70 rounded hover:bg-bg-2"
+                            title="Collapse"
+                        >
+                            <Maximize2 className="size-4" />
+                        </button>
+                    </div>
                 </div>
-            </div>
-
-            {/* Border Radius */}
-            <div>
-                <label className="block text-xs text-text-primary/60 mb-1">Radius</label>
-                <select
-                    value={currentRadius?.value || '0px'}
-                    onChange={(e) => handleRadiusChange(e.target.value)}
-                    onBlur={onBlur}
-                    className="w-full px-2 py-1.5 text-sm bg-bg-3 border border-text/10 rounded-md text-text-primary focus:outline-none focus:border-accent"
-                >
-                    {BORDER_RADII.map(radius => (
-                        <option key={radius.tw} value={radius.value}>
-                            {radius.label}
-                        </option>
-                    ))}
-                </select>
-
-                {/* Visual radius preview */}
-                <div className="mt-2 flex justify-center">
-                    <div
-                        className="w-16 h-16 bg-accent/20 border-2 border-accent transition-all"
-                        style={{ borderRadius: currentRadius?.value || '0px' }}
+            ) : (
+                // Collapsed: single input
+                <div className="flex items-center gap-2">
+                    <AllIcon />
+                    <DropdownControl
+                        options={BORDER_WIDTHS}
+                        value={allSameWidth ? borderWidths.top : borderWidths.top}
+                        onChange={(val, commit) => handleWidthChange('all', val, commit)}
+                        onHoverStart={(val) => handleWidthPreview('all', val)}
+                        onHoverEnd={onClearPreview}
+                        className="flex-1"
                     />
+                    <button
+                        type="button"
+                        onClick={() => setIsExpanded(true)}
+                        className="p-1.5 bg-bg-3 text-text-primary/70 rounded hover:bg-bg-2"
+                        title="Expand to show all sides"
+                    >
+                        <Maximize2 className="size-4" />
+                    </button>
                 </div>
-            </div>
+            )}
         </div>
     );
 }

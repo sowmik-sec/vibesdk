@@ -70,8 +70,12 @@ export interface UseDesignModeReturn {
     canRedo: boolean;
     /** Clear selection */
     clearSelection: () => void;
-    /** Update text content of selected element */
+    /** Update text content of selected element (preview only) */
     updateText: (text: string) => void;
+    /** Preview text content change (alias for updateText) */
+    previewText: (text: string) => void;
+    /** Persist text content change to backend */
+    commitText: (text: string) => Promise<void>;
     /** Whether there are pending changes being synced */
     isSyncing: boolean;
     /** Last sync error if any */
@@ -641,6 +645,12 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         canRedo,
         clearSelection,
         updateText,
+        previewText: updateText,
+        commitText: async (text: string) => {
+            if (!selectedElement) return;
+            const oldText = selectedElement.textContent || '';
+            await handleTextChange(oldText, text);
+        },
         isSyncing,
         syncError,
         hasPendingChanges,
@@ -664,9 +674,11 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         canRedo,
         clearSelection,
         updateText,
+        selectedElement,
         isSyncing,
         syncError,
         hasPendingChanges,
         refreshPreview,
+        handleTextChange,
     ]);
 }
