@@ -695,6 +695,7 @@ export default function Chat() {
 							<DesignModePanel
 								selectedElement={designMode.selectedElement}
 								onStyleChange={(p, v) => designMode.applyStyle(p, v)}
+								onBatchStyleChange={(changes) => designMode.applyStyles(changes)}
 								onStylePreview={(p, v) => designMode.previewStyle(p, v)}
 								onClearPreview={designMode.clearPreview}
 								onTextChange={designMode.previewText}

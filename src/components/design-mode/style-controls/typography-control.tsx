@@ -22,6 +22,7 @@ interface TypographyControlProps {
     styles: DesignModeComputedStyles;
     tailwindClasses: string[];
     onChange: (property: string, value: string, commit: boolean) => void;
+    onBatchChange?: (changes: Array<{ property: string; value: string }>) => void;
     onPreview: (property: string, value: string) => void;
     onClearPreview: () => void;
 }
@@ -117,6 +118,7 @@ export function TypographyControl({
     styles,
     tailwindClasses,
     onChange,
+    onBatchChange,
     onPreview,
     onClearPreview,
 }: TypographyControlProps) {
@@ -202,12 +204,26 @@ export function TypographyControl({
         return styles.textAlign || 'left';
     }, [styles.textAlign]);
 
-    // Check for active decorations
+    // Check for active decorations - check BOTH computedStyles AND tailwindClasses for robust detection
     const currentDecorations = useMemo(() => {
         const decorations: string[] = [];
-        if (styles.fontStyle === 'italic') decorations.push('italic');
-        if (styles.textDecoration?.includes('line-through')) decorations.push('line-through');
-        if (styles.textDecoration?.includes('underline')) decorations.push('underline');
+        // Check italic from both computedStyles and tailwindClasses
+        if (styles.fontStyle === 'italic' || tailwindClasses.includes('italic')) {
+            decorations.push('italic');
+        }
+        // Helper to check for arbitrary decoration classes
+        const hasArbitraryDecoration = (type: string) =>
+            tailwindClasses.some(c => c.startsWith('[text-decoration-line:') && c.includes(type));
+
+        // Check underline from both computedStyles and tailwindClasses (including arbitrary values)
+        if (styles.textDecoration?.includes('underline') || tailwindClasses.includes('underline') || hasArbitraryDecoration('underline')) {
+            decorations.push('underline');
+        }
+        // Check line-through from both computedStyles and tailwindClasses (including arbitrary values)
+        if (styles.textDecoration?.includes('line-through') || tailwindClasses.includes('line-through') || hasArbitraryDecoration('line-through')) {
+            decorations.push('line-through');
+        }
+        // These are Tailwind-only utilities
         if (tailwindClasses.includes('tabular-nums')) decorations.push('tabular-nums');
         if (tailwindClasses.includes('slashed-zero')) decorations.push('slashed-zero');
         return decorations;
@@ -246,20 +262,30 @@ export function TypographyControl({
     const handleDecorationChange = useCallback((values: string | string[]) => {
         const decorations = Array.isArray(values) ? values : [values];
 
-        // Handle fontStyle (italic)
+        // Build all style changes
         const isItalic = decorations.includes('italic');
-        onChange('fontStyle', isItalic ? 'italic' : 'normal', true);
-
-        // Handle textDecoration
         const textDecorations = decorations.filter(d => ['underline', 'line-through'].includes(d));
-        onChange('textDecoration', textDecorations.length > 0 ? textDecorations.join(' ') : 'none', true);
-
-        // Handle font-variant-numeric (tabular-nums, slashed-zero)
         const numericVariants = decorations.filter(d => ['tabular-nums', 'slashed-zero'].includes(d));
-        if (numericVariants.length > 0) {
-            onChange('fontVariantNumeric', numericVariants.join(' '), true);
+
+        // If we have batch change support, use it to prevent backend race conditions
+        if (onBatchChange) {
+            const changes: Array<{ property: string; value: string }> = [
+                { property: 'fontStyle', value: isItalic ? 'italic' : 'normal' },
+                { property: 'textDecoration', value: textDecorations.length > 0 ? textDecorations.join(' ') : 'none' },
+            ];
+            if (numericVariants.length > 0) {
+                changes.push({ property: 'fontVariantNumeric', value: numericVariants.join(' ') });
+            }
+            onBatchChange(changes);
+        } else {
+            // Fallback to sequential calls (may have race conditions)
+            onChange('fontStyle', isItalic ? 'italic' : 'normal', true);
+            onChange('textDecoration', textDecorations.length > 0 ? textDecorations.join(' ') : 'none', true);
+            if (numericVariants.length > 0) {
+                onChange('fontVariantNumeric', numericVariants.join(' '), true);
+            }
         }
-    }, [onChange]);
+    }, [onChange, onBatchChange]);
 
     return (
         <div className="space-y-4">

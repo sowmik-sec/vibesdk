@@ -353,15 +353,55 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 newValue: value,
             }));
 
-            // Update the selectedElement's computedStyles to reflect the changes immediately
-            // This ensures the design mode panel shows the updated values
-            const updatedComputedStyles = { ...selectedElement.computedStyles };
-            changes.forEach(({ property, value }) => {
-                (updatedComputedStyles as Record<string, string>)[property] = value;
-            });
-            setSelectedElement({
-                ...selectedElement,
-                computedStyles: updatedComputedStyles,
+            // Use functional update to avoid race conditions when multiple style changes
+            // are applied rapidly (e.g., fontStyle and textDecoration from decorations)
+            setSelectedElement(prev => {
+                if (!prev) return prev;
+
+                // Merge computedStyles with previous state
+                const mergedComputedStyles = { ...prev.computedStyles };
+                changes.forEach(({ property, value }) => {
+                    (mergedComputedStyles as Record<string, string>)[property] = value;
+                });
+
+                // Merge tailwindClasses with previous state
+                let mergedTailwindClasses = [...prev.tailwindClasses];
+                changes.forEach(({ property, value }) => {
+                    if (property === 'fontStyle') {
+                        mergedTailwindClasses = mergedTailwindClasses.filter(c => c !== 'italic' && c !== 'not-italic');
+                        if (value === 'italic') {
+                            mergedTailwindClasses.push('italic');
+                        }
+                    } else if (property === 'textDecoration') {
+                        // Remove existing decoration classes including arbitrary ones
+                        mergedTailwindClasses = mergedTailwindClasses.filter(
+                            c => c !== 'underline' && c !== 'no-underline' && c !== 'line-through' && !c.startsWith('[text-decoration')
+                        );
+
+                        const newDecorations: string[] = [];
+                        if (value.includes('underline')) {
+                            newDecorations.push('underline');
+                        }
+                        if (value.includes('line-through')) {
+                            newDecorations.push('line-through');
+                        }
+
+                        if (newDecorations.length > 1) {
+                            // Use arbitrary value for multiple decorations
+                            mergedTailwindClasses.push(`[text-decoration-line:${newDecorations.join('_')}]`);
+                        } else {
+                            // Use standard classes for single/none
+                            mergedTailwindClasses.push(...newDecorations);
+                        }
+                    }
+                });
+
+                return {
+                    ...prev,
+                    computedStyles: mergedComputedStyles,
+                    tailwindClasses: mergedTailwindClasses,
+                    className: mergedTailwindClasses.join(' '),
+                };
             });
 
             // Add to history

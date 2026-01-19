@@ -338,18 +338,35 @@ function cssToTailwind(property: string, value: string): { class: string; prefix
             return null;
         }
 
-        // Text decoration (underline, line-through)
+        // Text decoration (underline, line-through) - supports multiple decorations
         case 'textDecoration': {
+            const classes: string[] = [];
             if (normalizedValue.includes('underline')) {
-                return { class: 'underline', prefix: 'underline' };
+                classes.push('underline');
             }
             if (normalizedValue.includes('line-through')) {
-                return { class: 'line-through', prefix: 'line-through' };
+                classes.push('line-through');
             }
-            if (normalizedValue === 'none') {
-                return { class: 'no-underline', prefix: 'underline' };
+
+            if (classes.length === 0 && normalizedValue === 'none') {
+                return { class: '', prefix: 'text-decoration' };
             }
-            return null;
+            if (classes.length === 0) {
+                return null;
+            }
+
+            // CSS Conflict Fix: "underline" and "line-through" classes are non-additive in CSS.
+            // If both are present, we must use an arbitrary value to apply them simultaneously.
+            if (classes.length > 1) {
+                // Tailwind arbitrary value format: [text-decoration-line:underline_line-through]
+                return {
+                    class: `[text-decoration-line:${classes.join('_')}]`,
+                    prefix: 'text-decoration'
+                };
+            }
+
+            // Single decoration can use standard class
+            return { class: classes[0], prefix: 'text-decoration' };
         }
 
         // Line height
@@ -476,90 +493,88 @@ function cssToTailwind(property: string, value: string): { class: string; prefix
 /**
  * Get the regex pattern to match existing Tailwind classes for a property
  */
+/**
+ * Get the regex pattern to match existing Tailwind classes for a property
+ */
 function getExistingClassPattern(prefix: string): RegExp {
+    // Helper to create safe regex that matches whole class but ignores variants (e.g. matches 'underline' but not 'hover:underline')
+    // Matches: start-of-string OR whitespace, followed by class, followed by whitespace OR end-of-string
+    const safeMatch = (pattern: string) => new RegExp(`(?:^|\\s)(${pattern})(?=\\s|$)`, 'g');
+
     switch (prefix) {
         case 'text':
-            // Match text-color, text-size, text-align classes
-            return /text-(inherit|current|transparent|black|white|[\w]+-\d+|xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl|left|center|right|justify|\[.+?\])/g;
+            return safeMatch('text-(?:inherit|current|transparent|black|white|[\\w]+-\\d+|xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl|left|center|right|justify|\\[.+?\\])');
         case 'bg':
-            return /bg-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])/g;
+            return safeMatch('bg-(?:inherit|current|transparent|black|white|[\\w]+-\\d+|\\[.+?\\])');
         case 'font':
-            return /font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black|\[.+?\])/g;
+            return safeMatch('font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black|\\[.+?\\])');
         case 'p':
-            return /p-(\d+\.?\d*|\[.+?\])/g;
+            return safeMatch('p-(?:\\d+\\.?\\d*|\\[.+?\\])');
         case 'pt':
-            return /pt-(\d+\.?\d*|\[.+?\])/g;
+            return safeMatch('pt-(?:\\d+\\.?\\d*|\\[.+?\\])');
         case 'pr':
-            return /pr-(\d+\.?\d*|\[.+?\])/g;
+            return safeMatch('pr-(?:\\d+\\.?\\d*|\\[.+?\\])');
         case 'pb':
-            return /pb-(\d+\.?\d*|\[.+?\])/g;
+            return safeMatch('pb-(?:\\d+\\.?\\d*|\\[.+?\\])');
         case 'pl':
-            return /pl-(\d+\.?\d*|\[.+?\])/g;
+            return safeMatch('pl-(?:\\d+\\.?\\d*|\\[.+?\\])');
+        case 'px':
+            return safeMatch('px-(?:\\d+\\.?\\d*|\\[.+?\\])');
+        case 'py':
+            return safeMatch('py-(?:\\d+\\.?\\d*|\\[.+?\\])');
         case 'm':
-            return /m-(\d+\.?\d*|\[.+?\])/g;
+            return safeMatch('-?m-(?:\\d+\\.?\\d*|auto|\\[.+?\\])');
         case 'mt':
-            return /mt-(\d+\.?\d*|\[.+?\])/g;
+            return safeMatch('-?mt-(?:\\d+\\.?\\d*|auto|\\[.+?\\])');
         case 'mr':
-            return /mr-(\d+\.?\d*|\[.+?\])/g;
+            return safeMatch('-?mr-(?:\\d+\\.?\\d*|auto|\\[.+?\\])');
         case 'mb':
-            return /mb-(\d+\.?\d*|\[.+?\])/g;
+            return safeMatch('-?mb-(?:\\d+\\.?\\d*|auto|\\[.+?\\])');
         case 'ml':
-            return /ml-(\d+\.?\d*|\[.+?\])/g;
+            return safeMatch('-?ml-(?:\\d+\\.?\\d*|auto|\\[.+?\\])');
+        case 'mx':
+            return safeMatch('-?mx-(?:\\d+\\.?\\d*|auto|\\[.+?\\])');
+        case 'my':
+            return safeMatch('-?my-(?:\\d+\\.?\\d*|auto|\\[.+?\\])');
+
         // Border width
         case 'border':
-            return /\bborder(-\d+)?(?!-[trblxy])\b|\bborder-\[.+?\]/g;
-        case 'border-t':
-            return /border-t(-\d+)?|\border-t-\[.+?\]/g;
-        case 'border-r':
-            return /border-r(-\d+)?|\border-r-\[.+?\]/g;
-        case 'border-b':
-            return /border-b(-\d+)?|\border-b-\[.+?\]/g;
-        case 'border-l':
-            return /border-l(-\d+)?|\border-l-\[.+?\]/g;
-        // Border color patterns (distinct prefixes to avoid conflicts with width)
+            return safeMatch('border(?:-[trblxy])?(?:-(?:\\d+|DEFAULT|none|solid|dashed|dotted|double|hidden|inherit|current|transparent|black|white|[\\w]+-\\d+|\\[.+?\\]))?');
         case 'border-color':
-            return /\bborder-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])(?!-[trbl])/g;
-        case 'border-t-color':
-            return /border-t-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])/g;
-        case 'border-r-color':
-            return /border-r-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])/g;
-        case 'border-b-color':
-            return /border-b-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])/g;
-        case 'border-l-color':
-            return /border-l-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])/g;
+            // Matches border-color but excludes width-like patterns if possible (though border-red-500 is same syntax as border-2 in some contexts? No, border-2 is width)
+            // Using simple pattern for now
+            return safeMatch('border-(?:inherit|current|transparent|black|white|[\\w]+-\\d+|\\[.+?\\])');
+
         // Border radius
         case 'rounded':
-            return /rounded(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-\[.+?\]/g;
-        case 'rounded-tl':
-            return /rounded-tl(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-tl-\[.+?\]/g;
-        case 'rounded-tr':
-            return /rounded-tr(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-tr-\[.+?\]/g;
-        case 'rounded-bl':
-            return /rounded-bl(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-bl-\[.+?\]/g;
-        case 'rounded-br':
-            return /rounded-br(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-br-\[.+?\]/g;
+            return safeMatch('rounded(?:-[trbl]?[trbl]?)?(?:-(?:none|sm|md|lg|xl|2xl|3xl|full|\\[.+?\\]))?');
+
         case 'italic':
-            // Match italic or not-italic classes
-            return /\b(italic|not-italic)\b/g;
-        // Text decoration
+            return safeMatch('italic|not-italic');
+
+        case 'text-decoration':
+            // Matches underline, line-through, no-underline AND arbitrary values like [text-decoration-line:...]
+            return safeMatch('underline|no-underline|line-through|\\[text-decoration-line:[^\\]]+\\]');
         case 'underline':
-            return /\b(underline|no-underline)\b/g;
+            return safeMatch('underline|no-underline');
         case 'line-through':
-            return /\bline-through\b/g;
+            return safeMatch('line-through');
+
         // Line height
         case 'leading':
-            return /leading-(none|tight|snug|normal|relaxed|loose|\d+|\[.+?\])/g;
+            return safeMatch('leading-(?:none|tight|snug|normal|relaxed|loose|\\d+|\\[.+?\\])');
         // Letter spacing
         case 'tracking':
-            return /tracking-(tighter|tight|normal|wide|wider|widest|\[.+?\])/g;
+            return safeMatch('tracking-(?:tighter|tight|normal|wide|wider|widest|\\[.+?\\])');
         // Opacity
         case 'opacity':
-            return /opacity-(\d+|\[.+?\])/g;
+            return safeMatch('opacity-(?:\\d+|\\[.+?\\])');
         // Box shadow
         case 'shadow':
-            return /shadow(-none|-sm|-md|-lg|-xl|-2xl|-inner)?/g;
+            return safeMatch('shadow(?:-none|-sm|-md|-lg|-xl|-2xl|-inner)?');
+
         default:
-            return new RegExp(`${prefix}-[\\w\\[\\].]+`, 'g');
+            return safeMatch(`${prefix}-[\\w\\[\\].]+`);
     }
 }
 

@@ -40,6 +40,7 @@ import { cn } from '@/lib/utils';
 export interface DesignModePanelProps {
     selectedElement: DesignModeElementData | null;
     onStyleChange: (property: string, value: string) => void;
+    onBatchStyleChange?: (changes: Array<{ property: string; value: string }>) => void;
     onStylePreview: (property: string, value: string) => void;
     onClearPreview: () => void;
     onTextChange?: (text: string) => void;
@@ -184,6 +185,7 @@ function isTextElement(tagName: string): boolean {
 export function DesignModePanel({
     selectedElement,
     onStyleChange,
+    onBatchStyleChange,
     onStylePreview,
     onClearPreview,
     onTextChange,
@@ -329,6 +331,7 @@ export function DesignModePanel({
                         styles={selectedElement.computedStyles}
                         tailwindClasses={selectedElement.tailwindClasses}
                         onChange={handleStyleChange}
+                        onBatchChange={onBatchStyleChange}
                         onPreview={onStylePreview}
                         onClearPreview={onClearPreview}
                     />

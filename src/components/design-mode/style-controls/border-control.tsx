@@ -4,10 +4,9 @@
  */
 
 import { useState, useCallback, useMemo } from 'react';
-import { Maximize2, Lock, Unlock } from 'lucide-react';
+import { Maximize2 } from 'lucide-react';
 import type { DesignModeComputedStyles } from '@/lib/design-mode/design-mode-protocol';
 import { DropdownControl, type DropdownOption } from './dropdown-control';
-import { cn } from '@/lib/utils';
 
 interface BorderControlProps {
     styles: DesignModeComputedStyles;
