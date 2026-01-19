@@ -291,7 +291,7 @@ function injectDesignModeScript(html: string): string {
     if (!el) return {};
     const cs = getComputedStyle(el);
     return {
-      fontFamily: cs.fontFamily, fontSize: cs.fontSize, fontWeight: cs.fontWeight,
+      fontFamily: cs.fontFamily, fontSize: cs.fontSize, fontWeight: cs.fontWeight, fontStyle: cs.fontStyle,
       lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing, textAlign: cs.textAlign,
       textDecoration: cs.textDecoration, textTransform: cs.textTransform, color: cs.color,
       backgroundColor: cs.backgroundColor, backgroundImage: cs.backgroundImage,
