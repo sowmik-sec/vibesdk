@@ -1,7 +1,7 @@
-import { 
-    AgentActionKey, 
-    AgentConfig, 
-    AgentConstraintConfig, 
+import {
+    AgentActionKey,
+    AgentConfig,
+    AgentConstraintConfig,
     AIModels,
     AllModels,
     LiteModels,
@@ -181,38 +181,38 @@ const DEFAULT_AGENT_CONFIG: AgentConfig = {
     },
 };
 
-export const AGENT_CONFIG: AgentConfig = env.PLATFORM_MODEL_PROVIDERS 
-    ? PLATFORM_AGENT_CONFIG 
+export const AGENT_CONFIG: AgentConfig = env.PLATFORM_MODEL_PROVIDERS
+    ? PLATFORM_AGENT_CONFIG
     : DEFAULT_AGENT_CONFIG;
 
 
 export const AGENT_CONSTRAINTS: Map<AgentActionKey, AgentConstraintConfig> = new Map([
-	['fastCodeFixer', {
-		allowedModels: new Set([AIModels.DISABLED]),
-		enabled: true,
-	}],
-	['realtimeCodeFixer', {
-		allowedModels: new Set([AIModels.DISABLED]),
-		enabled: true,
-	}],
-	['fileRegeneration', {
-		allowedModels: new Set(AllModels),
-		enabled: true,
-	}],
-	['phaseGeneration', {
-		allowedModels: new Set(AllModels),
-		enabled: true,
-	}],
-	['projectSetup', {
-		allowedModels: new Set([...RegularModels, AIModels.GEMINI_2_5_PRO]),
-		enabled: true,
-	}],
-	['conversationalResponse', {
-		allowedModels: new Set(RegularModels),
-		enabled: true,
-	}],
-	['templateSelection', {
-		allowedModels: new Set(LiteModels),
-		enabled: true,
-	}],
+    ['fastCodeFixer', {
+        allowedModels: new Set([AIModels.DISABLED]),
+        enabled: true,
+    }],
+    ['realtimeCodeFixer', {
+        allowedModels: new Set([AIModels.DISABLED]),
+        enabled: true,
+    }],
+    ['fileRegeneration', {
+        allowedModels: new Set(AllModels),
+        enabled: true,
+    }],
+    ['phaseGeneration', {
+        allowedModels: new Set(AllModels),
+        enabled: true,
+    }],
+    ['projectSetup', {
+        allowedModels: new Set([...RegularModels, AIModels.GEMINI_2_5_PRO]),
+        enabled: true,
+    }],
+    ['conversationalResponse', {
+        allowedModels: new Set(RegularModels),
+        enabled: true,
+    }],
+    ['templateSelection', {
+        allowedModels: new Set(LiteModels),
+        enabled: true,
+    }],
 ]);

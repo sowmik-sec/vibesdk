@@ -573,10 +573,22 @@ export async function infer<OutputSchema extends z.AnyZodObject>({
 
         // If direct access is enabled, strip the provider prefix (e.g. google-ai-studio/gemini... -> gemini...)
         if (modelConfig.directOverride && modelName.includes('/')) {
-            modelName = modelName.split('/').pop() || modelName;
+            if (modelConfig.provider === 'openrouter') {
+                // For OpenRouter, preserve the vendor prefix (e.g. openrouter/google/gemini -> google/gemini)
+                if (modelName.startsWith('openrouter/')) {
+                    modelName = modelName.substring('openrouter/'.length);
+                }
+            } else {
+                modelName = modelName.split('/').pop() || modelName;
+            }
         }
 
-        const client = new OpenAI({ apiKey, baseURL: baseURL, defaultHeaders });
+        const client = new OpenAI({
+            apiKey,
+            baseURL: baseURL,
+            defaultHeaders,
+            timeout: 5 * 60 * 1000,
+        });
         const schemaObj =
             schema && schemaName && !format
                 ? { response_format: zodResponseFormat(schema, schemaName) }
@@ -720,10 +732,10 @@ export async function infer<OutputSchema extends z.AnyZodObject>({
             }
 
             console.error(`Failed to get inference response from OpenAI: ${error}`);
-            // if ((error instanceof Error && error.message.includes('429')) || (typeof error === 'string' && error.includes('429'))) {
+            if ((error instanceof Error && error.message.includes('429')) || (typeof error === 'string' && error.includes('429'))) {
 
-            //     throw new RateLimitExceededError('Rate limit exceeded in LLM calls, Please try again later', RateLimitType.LLM_CALLS);
-            // }
+                throw new RateLimitExceededError('Rate limit exceeded in LLM calls, Please try again later', RateLimitType.LLM_CALLS);
+            }
             throw error;
         }
         let toolCalls: ChatCompletionMessageFunctionToolCall[] = [];

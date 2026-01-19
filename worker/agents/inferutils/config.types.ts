@@ -122,6 +122,18 @@ const MODELS_MASTER = {
             directOverride: true,
         }
     },
+    // --- OpenRouter Models ---
+    OPENROUTER_GEMINI_FREE: {
+        id: 'openrouter/google/gemini-2.0-flash-exp:free',
+        config: {
+            name: 'Gemini 2.0 Flash Free (OpenRouter)',
+            size: ModelSize.REGULAR,
+            provider: 'openrouter', // Must match logic in core.ts (if any provider specific logic exists, usually just passed through)
+            creditCost: 0,
+            contextSize: 1000000,
+            directOverride: true,
+        }
+    },
 
     // --- Anthropic Models ---
     CLAUDE_3_7_SONNET_20250219: {
