@@ -82,6 +82,29 @@ export class CodeGeneratorAgent extends Agent<Env, AgentState> implements AgentI
         phasesCounter: MAX_PHASES,
     } as AgentState;
 
+    // ==========================================
+    // File Management
+    // ==========================================
+
+    async saveFile(filePath: string, content: string, commitMessage: string): Promise<{ success: boolean, error?: string }> {
+        try {
+            this.logger().info(`Saving file ${filePath}`, { commitMessage });
+            await this.fileManager.saveGeneratedFile(
+                {
+                    filePath,
+                    fileContents: content,
+                    filePurpose: 'Saved by user request'
+                },
+                commitMessage,
+                true // Overwrite
+            );
+            return { success: true };
+        } catch (error) {
+            this.logger().error(`Error saving file ${filePath}:`, error);
+            return { success: false, error: error instanceof Error ? error.message : String(error) };
+        }
+    }
+
     constructor(ctx: AgentContext, env: Env) {
         super(ctx, env);
 

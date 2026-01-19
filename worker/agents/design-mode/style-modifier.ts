@@ -179,6 +179,15 @@ function cssToTailwind(property: string, value: string): { class: string; prefix
             return { class: `font-[${value}]`, prefix: 'font' };
         }
 
+        case 'fontStyle': {
+            // italic or normal -> italic or remove italic class
+            if (normalizedValue === 'italic') {
+                return { class: 'italic', prefix: 'italic' };
+            }
+            // Remove italic (set to normal) - return empty class to trigger removal
+            return { class: '', prefix: 'italic' };
+        }
+
         case 'textAlign': {
             const alignClass = TAILWIND_TEXT_ALIGN[normalizedValue];
             if (alignClass) {
@@ -254,15 +263,22 @@ function cssToTailwind(property: string, value: string): { class: string; prefix
         case 'borderRightColor':
         case 'borderBottomColor':
         case 'borderLeftColor': {
-            const prefix = property === 'borderColor' ? 'border' :
+            // Use distinct prefixes that include the side AND indicate color
+            // This avoids conflicts with border-width classes
+            const classPrefix = property === 'borderColor' ? 'border' :
                 property === 'borderTopColor' ? 'border-t' :
                     property === 'borderRightColor' ? 'border-r' :
                         property === 'borderBottomColor' ? 'border-b' : 'border-l';
+            // Use a distinct internal prefix for pattern matching
+            const patternPrefix = property === 'borderColor' ? 'border-color' :
+                property === 'borderTopColor' ? 'border-t-color' :
+                    property === 'borderRightColor' ? 'border-r-color' :
+                        property === 'borderBottomColor' ? 'border-b-color' : 'border-l-color';
             const colorName = TAILWIND_COLORS[normalizedValue];
             if (colorName) {
-                return { class: `${prefix}-${colorName}`, prefix: prefix };
+                return { class: `${classPrefix}-${colorName}`, prefix: patternPrefix };
             }
-            return { class: `${prefix}-[${value}]`, prefix: prefix };
+            return { class: `${classPrefix}-[${value}]`, prefix: patternPrefix };
         }
 
         // Border radius
@@ -322,6 +338,136 @@ function cssToTailwind(property: string, value: string): { class: string; prefix
             return null;
         }
 
+        // Text decoration (underline, line-through)
+        case 'textDecoration': {
+            if (normalizedValue.includes('underline')) {
+                return { class: 'underline', prefix: 'underline' };
+            }
+            if (normalizedValue.includes('line-through')) {
+                return { class: 'line-through', prefix: 'line-through' };
+            }
+            if (normalizedValue === 'none') {
+                return { class: 'no-underline', prefix: 'underline' };
+            }
+            return null;
+        }
+
+        // Line height
+        case 'lineHeight': {
+            const lineHeightMap: Record<string, string> = {
+                '1': 'leading-none',
+                '1.25': 'leading-tight',
+                '1.375': 'leading-snug',
+                '1.5': 'leading-normal',
+                '1.625': 'leading-relaxed',
+                '2': 'leading-loose',
+                '0.75rem': 'leading-3',
+                '1rem': 'leading-4',
+                '1.25rem': 'leading-5',
+                '1.5rem': 'leading-6',
+                '1.75rem': 'leading-7',
+                '2rem': 'leading-8',
+                '2.25rem': 'leading-9',
+                '2.5rem': 'leading-10',
+            };
+            const leadingClass = lineHeightMap[normalizedValue];
+            if (leadingClass) {
+                return { class: leadingClass, prefix: 'leading' };
+            }
+            return { class: `leading-[${value}]`, prefix: 'leading' };
+        }
+
+        // Letter spacing
+        case 'letterSpacing': {
+            const letterSpacingMap: Record<string, string> = {
+                '-0.05em': 'tracking-tighter',
+                '-0.025em': 'tracking-tight',
+                '0': 'tracking-normal',
+                '0em': 'tracking-normal',
+                '0.025em': 'tracking-wide',
+                '0.05em': 'tracking-wider',
+                '0.1em': 'tracking-widest',
+            };
+            const trackingClass = letterSpacingMap[normalizedValue];
+            if (trackingClass) {
+                return { class: trackingClass, prefix: 'tracking' };
+            }
+            return { class: `tracking-[${value}]`, prefix: 'tracking' };
+        }
+
+        // Opacity
+        case 'opacity': {
+            const opacityMap: Record<string, string> = {
+                '0': 'opacity-0',
+                '0.05': 'opacity-5',
+                '0.1': 'opacity-10',
+                '0.2': 'opacity-20',
+                '0.25': 'opacity-25',
+                '0.3': 'opacity-30',
+                '0.4': 'opacity-40',
+                '0.5': 'opacity-50',
+                '0.6': 'opacity-60',
+                '0.7': 'opacity-70',
+                '0.75': 'opacity-75',
+                '0.8': 'opacity-80',
+                '0.9': 'opacity-90',
+                '0.95': 'opacity-95',
+                '1': 'opacity-100',
+            };
+            const opacityClass = opacityMap[normalizedValue];
+            if (opacityClass) {
+                return { class: opacityClass, prefix: 'opacity' };
+            }
+            // Convert percentage to opacity class
+            const percent = parseFloat(normalizedValue);
+            if (!isNaN(percent) && percent >= 0 && percent <= 100) {
+                return { class: `opacity-[${percent / 100}]`, prefix: 'opacity' };
+            }
+            return { class: `opacity-[${value}]`, prefix: 'opacity' };
+        }
+
+        // Box shadow
+        case 'boxShadow': {
+            if (normalizedValue === 'none') {
+                return { class: 'shadow-none', prefix: 'shadow' };
+            }
+            // Match common Tailwind shadow values
+            if (normalizedValue.includes('0 1px 2px 0')) {
+                return { class: 'shadow-sm', prefix: 'shadow' };
+            }
+            if (normalizedValue.includes('0 4px 6px -1px')) {
+                return { class: 'shadow-md', prefix: 'shadow' };
+            }
+            if (normalizedValue.includes('0 10px 15px -3px')) {
+                return { class: 'shadow-lg', prefix: 'shadow' };
+            }
+            if (normalizedValue.includes('0 20px 25px -5px')) {
+                return { class: 'shadow-xl', prefix: 'shadow' };
+            }
+            if (normalizedValue.includes('0 25px 50px -12px')) {
+                return { class: 'shadow-2xl', prefix: 'shadow' };
+            }
+            if (normalizedValue.includes('inset')) {
+                return { class: 'shadow-inner', prefix: 'shadow' };
+            }
+            return { class: 'shadow', prefix: 'shadow' };
+        }
+
+        // Font family
+        case 'fontFamily': {
+            if (normalizedValue.includes('sans-serif') || normalizedValue.includes('ui-sans-serif')) {
+                return { class: 'font-sans', prefix: 'font' };
+            }
+            if (normalizedValue.includes('serif')) {
+                return { class: 'font-serif', prefix: 'font' };
+            }
+            if (normalizedValue.includes('monospace') || normalizedValue.includes('ui-monospace')) {
+                return { class: 'font-mono', prefix: 'font' };
+            }
+            // For specific fonts, use arbitrary value
+            return { class: `font-[${value.split(',')[0].trim().replace(/['"]/g, '')}]`, prefix: 'font' };
+        }
+
         default:
             return null;
     }
@@ -370,6 +516,17 @@ function getExistingClassPattern(prefix: string): RegExp {
             return /border-b(-\d+)?|\border-b-\[.+?\]/g;
         case 'border-l':
             return /border-l(-\d+)?|\border-l-\[.+?\]/g;
+        // Border color patterns (distinct prefixes to avoid conflicts with width)
+        case 'border-color':
+            return /\bborder-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])(?!-[trbl])/g;
+        case 'border-t-color':
+            return /border-t-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])/g;
+        case 'border-r-color':
+            return /border-r-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])/g;
+        case 'border-b-color':
+            return /border-b-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])/g;
+        case 'border-l-color':
+            return /border-l-(inherit|current|transparent|black|white|[\w]+-\d+|\[.+?\])/g;
         // Border radius
         case 'rounded':
             return /rounded(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-\[.+?\]/g;
@@ -381,6 +538,26 @@ function getExistingClassPattern(prefix: string): RegExp {
             return /rounded-bl(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-bl-\[.+?\]/g;
         case 'rounded-br':
             return /rounded-br(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?|\rounded-br-\[.+?\]/g;
+        case 'italic':
+            // Match italic or not-italic classes
+            return /\b(italic|not-italic)\b/g;
+        // Text decoration
+        case 'underline':
+            return /\b(underline|no-underline)\b/g;
+        case 'line-through':
+            return /\bline-through\b/g;
+        // Line height
+        case 'leading':
+            return /leading-(none|tight|snug|normal|relaxed|loose|\d+|\[.+?\])/g;
+        // Letter spacing
+        case 'tracking':
+            return /tracking-(tighter|tight|normal|wide|wider|widest|\[.+?\])/g;
+        // Opacity
+        case 'opacity':
+            return /opacity-(\d+|\[.+?\])/g;
+        // Box shadow
+        case 'shadow':
+            return /shadow(-none|-sm|-md|-lg|-xl|-2xl|-inner)?/g;
         default:
             return new RegExp(`${prefix}-[\\w\\[\\].]+`, 'g');
     }
@@ -799,16 +976,22 @@ export function applyStyleChangesToSource(
             currentClasses = currentClasses.replace(existingPattern, '').trim();
         }
 
-        // Add the new class
-        const newClasses = currentClasses ? `${currentClasses} ${tailwind.class}` : tailwind.class;
+        // Add the new class (unless it's empty, which means removal only)
+        let newClasses: string;
+        if (tailwind.class === '') {
+            // Empty class means removal only - existing classes were already removed above
+            newClasses = currentClasses;
+            applied.push(`${change.property}: removed existing class`);
+        } else {
+            newClasses = currentClasses ? `${currentClasses} ${tailwind.class}` : tailwind.class;
+            applied.push(`${change.property}: ${tailwind.class}`);
+        }
 
         // Clean up multiple spaces
         const cleanedClasses = newClasses.replace(/\s+/g, ' ').trim();
 
         // Update the element info for the next iteration
         elementInfo.className = cleanedClasses;
-
-        applied.push(`${change.property}: ${tailwind.class}`);
     }
 
     // Apply the changes to the source

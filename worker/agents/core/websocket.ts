@@ -287,11 +287,11 @@ export function handleWebSocketMessage(
                         logger.error('Error handling design mode text update:', error);
                         sendError(connection, `Error updating text: ${error instanceof Error ? error.message : String(error)}`);
                     });
-                });                break;
+                }); break;
             case WebSocketMessageRequests.DESIGN_MODE_REFRESH_PREVIEW:
                 // Manually trigger a deploy to refresh the preview
                 logger.info('Received design mode refresh preview request');
-                
+
                 // Use the agent's deploy method to trigger a fresh deploy
                 (async () => {
                     try {
@@ -305,7 +305,7 @@ export function handleWebSocketMessage(
                             undefined, // callbacks
                             false // optimistic - do full health check
                         );
-                        
+
                         sendToConnection(connection, WebSocketMessageResponses.DESIGN_MODE_REFRESH_COMPLETE, {
                             success: true,
                         });

@@ -4,6 +4,7 @@
  * AI prompts, and code location mapping.
  */
 
+import * as path from 'path';
 import type { Connection } from 'agents';
 import type { ICodingAgent } from '../services/interfaces/ICodingAgent';
 import type {
@@ -84,14 +85,14 @@ export async function handleDesignModeStyleUpdate(
     request: DesignModeStyleUpdateRequest,
     logger: StructuredLogger
 ): Promise<void> {
-    const { selector, filePath, changes, textContent, sourceLocation, skipDeploy, className, tailwindClasses } = request;
+    const { selector, filePath, changes, textContent, sourceLocation, skipDeploy, className } = request;
 
-    console.log('[DESIGN_MODE] === STYLE UPDATE REQUEST RECEIVED ===');
-    console.log('[DESIGN_MODE] Selector:', selector);
-    console.log('[DESIGN_MODE] FilePath:', filePath || '(empty)');
-    console.log('[DESIGN_MODE] SourceLocation:', JSON.stringify(sourceLocation) || '(none)');
-    console.log('[DESIGN_MODE] TextContent:', textContent?.slice(0, 50) || '(none)');
-    console.log('[DESIGN_MODE] Changes:', JSON.stringify(changes, null, 2));
+    // console.log('[DESIGN_MODE] === STYLE UPDATE REQUEST RECEIVED ===');
+    // console.log('[DESIGN_MODE] Selector:', selector);
+    // console.log('[DESIGN_MODE] FilePath:', filePath || '(empty)');
+    // console.log('[DESIGN_MODE] SourceLocation:', JSON.stringify(sourceLocation) || '(none)');
+    // console.log('[DESIGN_MODE] TextContent:', textContent?.slice(0, 50) || '(none)');
+    // console.log('[DESIGN_MODE] Changes:', JSON.stringify(changes, null, 2));
 
     logger.info('Design mode style update', {
         selector,
@@ -106,27 +107,19 @@ export async function handleDesignModeStyleUpdate(
     try {
         // If we don't have a file path, we need to find it
         // Normalize the path to convert container paths (/workspace/i-xxx/...) to relative paths (src/...)
-        console.log('[DESIGN_MODE] Checking file path:', {
-            providedFilePath: filePath,
-            isEmptyString: filePath === '',
-            willSearch: !filePath,
-            textContent: textContent?.slice(0, 50),
-        });
+
 
         let rawFilePath: string | null | undefined = filePath;
         if (!filePath) {
-            console.log('[DESIGN_MODE] No file path provided, searching...');
-            console.log('[DESIGN_MODE] className:', className);
-            console.log('[DESIGN_MODE] tailwindClasses:', tailwindClasses);
+            // console.log('[DESIGN_MODE] No file path provided, searching...');
+            // console.log('[DESIGN_MODE] className:', className);
+            // console.log('[DESIGN_MODE] tailwindClasses:', tailwindClasses);
             rawFilePath = await findFileForSelector(agent, selector, logger, textContent, className);
-            console.log('[DESIGN_MODE] Search result:', rawFilePath);
+            // console.log('[DESIGN_MODE] Search result:', rawFilePath);
         }
         const targetFilePath = rawFilePath ? normalizeFilePath(rawFilePath) : null;
 
-        console.log('[DESIGN_MODE] Final file path:', {
-            rawFilePath,
-            targetFilePath,
-        });
+
 
         if (!targetFilePath) {
             sendStyleUpdateResponse(connection, {
@@ -200,41 +193,37 @@ async function findFileForSelector(
     className?: string
 ): Promise<string | null> {
     // Use console.log with distinct prefix for easy filtering
-    console.log('[DESIGN_MODE] findFileForSelector called', {
-        selector,
-        textContent,
-        className,
-    });
+
 
     // Get all files from FileManager (in memory, fast)
     const allFiles = agent.listFiles();
-    console.log('[DESIGN_MODE] Total files in FileManager:', allFiles.length);
+    // console.log('[DESIGN_MODE] Total files in FileManager:', allFiles.length);
 
     // Filter to only React component files
     const componentFiles = allFiles.filter(f =>
         (f.filePath.endsWith('.tsx') || f.filePath.endsWith('.jsx')) &&
         !f.filePath.includes('node_modules')
     );
-    console.log('[DESIGN_MODE] Component files to search:', componentFiles.length);
+    // console.log('[DESIGN_MODE] Component files to search:', componentFiles.length);
 
     if (componentFiles.length === 0) {
-        console.log('[DESIGN_MODE] No component files found!');
+        // console.log('[DESIGN_MODE] No component files found!');
         return null;
     }
 
     // 1. Try to find by Text Content (High Confidence for Labels/Buttons)
     if (textContent && textContent.length > 3 && textContent.length < 100) {
         const cleanText = textContent.trim();
-        console.log('[DESIGN_MODE] Searching by text content:', cleanText);
+        // console.log('[DESIGN_MODE] Searching by text content:', cleanText);
 
         for (const file of componentFiles) {
             // Check if file content contains the text
             if (file.fileContents && file.fileContents.includes(cleanText)) {
-                console.log('[DESIGN_MODE] Found file by text content:', file.filePath);
+                // console.log('[DESIGN_MODE] Found file by text content:', file.filePath);
                 return file.filePath;
             }
         }
-        console.log('[DESIGN_MODE] Text content not found in any file');
+        // console.log('[DESIGN_MODE] Text content not found in any file');
     }
 
     // 2. Try to find by className (from element's actual classes)
@@ -273,25 +262,25 @@ async function findFileForSelector(
 
         // Combine: high priority first, then other unique
         const uniqueClasses = [...highPriorityClasses, ...otherUniqueClasses];
-        console.log('[DESIGN_MODE] Searching by element className:', uniqueClasses.slice(0, 5));
+        // console.log('[DESIGN_MODE] Searching by element className:', uniqueClasses.slice(0, 5));
 
         // Search for unique classes in files
         for (const cls of uniqueClasses) {
             for (const file of componentFiles) {
                 if (file.fileContents && file.fileContents.includes(cls)) {
-                    console.log('[DESIGN_MODE] Found file by className:', file.filePath, 'class:', cls);
+                    // console.log('[DESIGN_MODE] Found file by className:', file.filePath, 'class:', cls);
                     return file.filePath;
                 }
             }
         }
-        console.log('[DESIGN_MODE] No unique class found in any file');
+        // console.log('[DESIGN_MODE] No unique class found in any file');
     }
 
     // 3. Try to find by unique ID if present
     const idMatch = selector.match(/#([a-zA-Z0-9_-]+)/);
     if (idMatch && idMatch[1] !== 'root') {
         const id = idMatch[1];
-        console.log('[DESIGN_MODE] Searching by ID:', id);
+        // console.log('[DESIGN_MODE] Searching by ID:', id);
 
         // Search for id="value" or id='value' or id={...}
         const idPatterns = [
@@ -304,13 +293,13 @@ async function findFileForSelector(
             if (file.fileContents) {
                 for (const pattern of idPatterns) {
                     if (file.fileContents.includes(pattern)) {
-                        console.log('[DESIGN_MODE] Found file by ID:', file.filePath);
+                        // console.log('[DESIGN_MODE] Found file by ID:', file.filePath);
                         return file.filePath;
                     }
                 }
             }
         }
-        console.log('[DESIGN_MODE] ID not found in any file');
+        // console.log('[DESIGN_MODE] ID not found in any file');
     }
 
     // 4. Try to find by class name from selector (legacy - less useful without classes in selector)
@@ -321,15 +310,15 @@ async function findFileForSelector(
         const genericClasses = ['flex', 'grid', 'block', 'hidden', 'container', 'wrapper', 'relative', 'absolute'];
 
         if (!genericClasses.includes(selectorClassName)) {
-            console.log('[DESIGN_MODE] Searching by selector class name:', selectorClassName);
+            // console.log('[DESIGN_MODE] Searching by selector class name:', selectorClassName);
 
             for (const file of componentFiles) {
                 if (file.fileContents && file.fileContents.includes(selectorClassName)) {
-                    console.log('[DESIGN_MODE] Found file by selector class name:', file.filePath);
+                    // console.log('[DESIGN_MODE] Found file by selector class name:', file.filePath);
                     return file.filePath;
                 }
             }
-            console.log('[DESIGN_MODE] Selector class name not found in any file');
+            // console.log('[DESIGN_MODE] Selector class name not found in any file');
         }
     }
 
@@ -337,14 +326,14 @@ async function findFileForSelector(
     const tagMatch = selector.match(/^([a-z]+)/i);
     if (tagMatch) {
         const tagName = tagMatch[1].toLowerCase();
-        console.log('[DESIGN_MODE] Searching by tag name:', tagName);
+        // console.log('[DESIGN_MODE] Searching by tag name:', tagName);
 
         // Look for JSX tags like <h1>, <button>, <label>, etc.
         const tagPattern = `<${tagName}`;
 
         for (const file of componentFiles) {
             if (file.fileContents && file.fileContents.toLowerCase().includes(tagPattern)) {
-                console.log('[DESIGN_MODE] Found file by tag name:', file.filePath);
+                // console.log('[DESIGN_MODE] Found file by tag name:', file.filePath);
                 return file.filePath;
             }
         }
@@ -352,7 +341,7 @@ async function findFileForSelector(
 
     // 6. Last resort: If only one component file exists, use it
     if (componentFiles.length === 1) {
-        console.log('[DESIGN_MODE] Only one component file, using it:', componentFiles[0].filePath);
+        // console.log('[DESIGN_MODE] Only one component file, using it:', componentFiles[0].filePath);
         return componentFiles[0].filePath;
     }
 
@@ -361,12 +350,12 @@ async function findFileForSelector(
     for (const mainFile of mainFiles) {
         const found = componentFiles.find(f => f.filePath === mainFile);
         if (found) {
-            console.log('[DESIGN_MODE] Using main component file as fallback:', found.filePath);
+            // console.log('[DESIGN_MODE] Using main component file as fallback:', found.filePath);
             return found.filePath;
         }
     }
 
-    console.log('[DESIGN_MODE] Could not find file for selector');
+    // console.log('[DESIGN_MODE] Could not find file for selector');
     return null;
 }
 
@@ -386,14 +375,7 @@ async function applyStyleChanges(
     logger: StructuredLogger,
     skipDeploy?: boolean
 ): Promise<StyleUpdateResult> {
-    console.log('[DESIGN_MODE] applyStyleChanges (deterministic) called:', {
-        filePath,
-        selector,
-        changesCount: changes.length,
-        textContent: textContent?.slice(0, 30),
-        sourceLocation: sourceLocation ? { filePath: sourceLocation.filePath, lineNumber: sourceLocation.lineNumber } : null,
-        className: className?.slice(0, 50),
-    });
+
 
     logger.info('Applying style changes deterministically', {
         filePath,
@@ -428,18 +410,18 @@ async function applyStyleChanges(
             lineNumber: sourceLocation?.lineNumber,
             className, // For finding elements with dynamic content
         };
-        console.log('[DESIGN_MODE] Element location options:', options);
+        // console.log('[DESIGN_MODE] Element location options:', options);
         let result = applyStyleChangesToSource(originalContent, changes, options);
 
         // 4. If Tailwind failed, try inline styles
         if (result.applied.length === 0 && result.failed.length > 0) {
-            console.log('[DESIGN_MODE] Tailwind modification failed, trying inline styles');
+            // console.log('[DESIGN_MODE] Tailwind modification failed, trying inline styles');
             result = applyInlineStylesToSource(originalContent, changes, textContent);
         }
 
         // 5. Check if any changes were actually applied
         if (result.applied.length === 0) {
-            console.log('[DESIGN_MODE] No changes applied:', result.failed);
+            // console.log('[DESIGN_MODE] No changes applied:', result.failed);
             return {
                 success: false,
                 filePath,
@@ -447,10 +429,10 @@ async function applyStyleChanges(
             };
         }
 
-        console.log('[DESIGN_MODE] Style changes applied:', {
-            applied: result.applied,
-            failed: result.failed
-        });
+        // console.log('[DESIGN_MODE] Style changes applied:', {
+        //     applied: result.applied,
+        //     failed: result.failed
+        // });
 
         // 6. Save the modified file
         const modifiedFile = {
@@ -460,19 +442,16 @@ async function applyStyleChanges(
         };
 
         // Use the agent's file saving mechanism
-        // This accesses the internal fileManager through the agent interface
-        const saveFiles = (agent as any).fileManager?.saveGeneratedFile;
-        if (saveFiles) {
-            await (agent as any).fileManager.saveGeneratedFile(modifiedFile, `style: design mode update to ${filePath}`);
-        } else {
-            // Fallback: save through regenerateFileByPath with a simple diff message
-            console.log('[DESIGN_MODE] FileManager not accessible, using fallback save');
+        const saveResult = await agent.saveFile(filePath, modifiedFile.fileContents, `style: design mode update to ${path.basename(filePath)}`);
+
+        if (!saveResult.success) {
+            console.error('[DESIGN_MODE] Failed to save file:', saveResult.error);
         }
 
         // 7. Deploy to sandbox to update the preview
         const deployToSandbox = (agent as any).deployToSandbox;
         if (deployToSandbox && !skipDeploy) {
-            console.log('[DESIGN_MODE] Deploying updated file to sandbox (Optimistic)');
+            // console.log('[DESIGN_MODE] Deploying updated file to sandbox (Optimistic)');
             // Pass optimistic: true to skip strict health check for faster updates
             // We cast to any because the interface might not update in runtime immediately or generic type issues
             await (agent as any).deployToSandbox(
@@ -484,7 +463,7 @@ async function applyStyleChanges(
                 true // optimistic
             );
         } else if (skipDeploy) {
-            console.log('[DESIGN_MODE] Skipping deployment as requested (saved only)');
+            // console.log('[DESIGN_MODE] Skipping deployment as requested (saved only)');
         }
 
         logger.info('Style changes applied successfully', {
