@@ -333,7 +333,8 @@ function cssToTailwind(property: string, value: string): { class: string; prefix
             };
             const styleClass = styles[normalizedValue];
             if (styleClass) {
-                return { class: styleClass, prefix: 'border' };
+                // Use distinct prefix to avoid conflict with border-width classes
+                return { class: styleClass, prefix: 'border-style' };
             }
             return null;
         }
@@ -537,14 +538,29 @@ function getExistingClassPattern(prefix: string): RegExp {
         case 'my':
             return safeMatch('-?my-(?:\\d+\\.?\\d*|auto|\\[.+?\\])');
 
-        // Border width
+        // Border width - matches border, border-2, border-[3px], etc. but NOT style keywords or colors
         case 'border':
-            return safeMatch('border(?:-[trblxy])?(?:-(?:\\d+|DEFAULT|none|solid|dashed|dotted|double|hidden|inherit|current|transparent|black|white|[\\w]+-\\d+|\\[.+?\\]))?');
+            return safeMatch('border(?:-[trblxy])?(?:-(?:\\d+|DEFAULT|\\[\\d+[^\\]]*\\]))?');
+        case 'border-t':
+        case 'border-r':
+        case 'border-b':
+        case 'border-l':
+            return safeMatch(`${prefix}(?:-(?:\\d+|DEFAULT|\\[\\d+[^\\]]*\\]))?`);
+        // Border style - matches border-solid, border-dashed, etc.
+        case 'border-style':
+            return safeMatch('border-(?:solid|dashed|dotted|double|none|hidden)');
+        // Border color - matches border-red-500, border-[#fff], etc. but NOT width numbers
         case 'border-color':
-            // Matches border-color but excludes width-like patterns if possible (though border-red-500 is same syntax as border-2 in some contexts? No, border-2 is width)
-            // Using simple pattern for now
-            return safeMatch('border-(?:inherit|current|transparent|black|white|[\\w]+-\\d+|\\[.+?\\])');
+            return safeMatch('border(?:-[trbl])?-(?:inherit|current|transparent|black|white|[a-zA-Z]+-\\d+|\\[[^\\]]+\\])');
 
+        // Side-specific border colors
+        case 'border-t-color':
+        case 'border-r-color':
+        case 'border-b-color':
+        case 'border-l-color': {
+            const side = prefix.split('-')[1]; // 't', 'r', 'b', or 'l'
+            return safeMatch(`border-${side}-(?:inherit|current|transparent|black|white|[a-zA-Z]+-\\d+|\\[[^\\]]+\\])`);
+        }
         // Border radius
         case 'rounded':
             return safeMatch('rounded(?:-[trbl]?[trbl]?)?(?:-(?:none|sm|md|lg|xl|2xl|3xl|full|\\[.+?\\]))?');
@@ -1042,7 +1058,41 @@ export function applyStyleChangesToSource(
     if (!elementInfo && locOptions.textContent) {
         console.log(`[StyleModifier] Attempting lookup by text content: "${locOptions.textContent.slice(0, 30)}..."`);
         elementInfo = findElementByTextContent(modified, locOptions.textContent);
+
+        // VALIDATION: Verify found element's classes match expected (avoid targeting child instead of parent)
+        if (elementInfo && locOptions.className) {
+            const sourceClass = (elementInfo.className || '').trim();
+            const domClass = locOptions.className;
+            const domTokens = domClass.split(/\s+/).filter(t => t.length > 0);
+
+            // Case 1: Expected element has classes, but found element has none - likely wrong element
+            if (domTokens.length > 2 && sourceClass.length === 0) {
+                console.log(`[StyleModifier] Text Content Validation Failed: Found element has NO classes, but expected "${domClass.slice(0, 30)}..."`);
+                console.log('[StyleModifier] Falling back to className lookup.');
+                elementInfo = null;
+            }
+            // Case 2: Both have classes, check overlap
+            else if (sourceClass.length > 0 && !sourceClass.startsWith('{')) {
+                const sourceTokens = sourceClass.split(/\s+/).filter(t => t.length > 0);
+                const domTokenSet = new Set(domTokens);
+
+                if (sourceTokens.length > 0) {
+                    const matchCount = sourceTokens.filter(t => domTokenSet.has(t)).length;
+                    const matchRatio = matchCount / sourceTokens.length;
+
+                    if (matchRatio < 0.3 && matchCount < 2) {
+                        console.log(`[StyleModifier] Text Content Validation Failed: Found element classes ("${sourceClass}") do not match DOM classes ("${domClass.slice(0, 30)}..."). Match ratio: ${matchRatio}`);
+                        console.log('[StyleModifier] Falling back to className lookup.');
+                        elementInfo = null;
+                    } else {
+                        console.log(`[StyleModifier] Text Content Validation Passed: Match ratio ${matchRatio.toFixed(2)}`);
+                    }
+                }
+            }
+        }
+
         if (elementInfo) console.log('[StyleModifier] Found element by text content');
+        else if (locOptions.textContent) console.log('[StyleModifier] Text content lookup failed or rejected by validation');
     }
 
     // Strategy 4: Find by className (for dynamic content where text isn't in source)

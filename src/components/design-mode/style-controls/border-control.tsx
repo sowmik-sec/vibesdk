@@ -12,6 +12,7 @@ interface BorderControlProps {
     styles: DesignModeComputedStyles;
     tailwindClasses: string[];
     onChange: (property: string, value: string, commit: boolean) => void;
+    onBatchChange?: (changes: Array<{ property: string; value: string }>) => void;
     onPreview: (property: string, value: string) => void;
     onClearPreview: () => void;
 }
@@ -89,6 +90,7 @@ export function BorderControl({
     styles,
     tailwindClasses: _tailwindClasses,
     onChange,
+    onBatchChange,
     onPreview,
     onClearPreview,
 }: BorderControlProps) {
@@ -115,13 +117,24 @@ export function BorderControl({
         borderWidths.right === borderWidths.bottom &&
         borderWidths.bottom === borderWidths.left;
 
-    // Handlers
+    // Handlers - use batch for commits to avoid race conditions
     const handleColorChange = useCallback((value: string, commit: boolean) => {
-        onChange('borderTopColor', value, commit);
-        onChange('borderRightColor', value, commit);
-        onChange('borderBottomColor', value, commit);
-        onChange('borderLeftColor', value, commit);
-    }, [onChange]);
+        if (commit && onBatchChange) {
+            // Batch all 4 color changes into one request
+            onBatchChange([
+                { property: 'borderTopColor', value },
+                { property: 'borderRightColor', value },
+                { property: 'borderBottomColor', value },
+                { property: 'borderLeftColor', value },
+            ]);
+        } else {
+            // Preview: individual changes are fine
+            onChange('borderTopColor', value, commit);
+            onChange('borderRightColor', value, commit);
+            onChange('borderBottomColor', value, commit);
+            onChange('borderLeftColor', value, commit);
+        }
+    }, [onChange, onBatchChange]);
 
     const handleStyleChange = useCallback((value: string, commit: boolean) => {
         onChange('borderStyle', value, commit);
@@ -129,14 +142,24 @@ export function BorderControl({
 
     const handleWidthChange = useCallback((side: string, value: string, commit: boolean) => {
         if (side === 'all') {
-            onChange('borderTopWidth', value, commit);
-            onChange('borderRightWidth', value, commit);
-            onChange('borderBottomWidth', value, commit);
-            onChange('borderLeftWidth', value, commit);
+            if (commit && onBatchChange) {
+                // Batch all 4 width changes into one request
+                onBatchChange([
+                    { property: 'borderTopWidth', value },
+                    { property: 'borderRightWidth', value },
+                    { property: 'borderBottomWidth', value },
+                    { property: 'borderLeftWidth', value },
+                ]);
+            } else {
+                onChange('borderTopWidth', value, commit);
+                onChange('borderRightWidth', value, commit);
+                onChange('borderBottomWidth', value, commit);
+                onChange('borderLeftWidth', value, commit);
+            }
         } else {
             onChange(`border${side.charAt(0).toUpperCase() + side.slice(1)}Width`, value, commit);
         }
-    }, [onChange]);
+    }, [onChange, onBatchChange]);
 
     const handleWidthPreview = useCallback((side: string, value: string) => {
         if (side === 'all') {
