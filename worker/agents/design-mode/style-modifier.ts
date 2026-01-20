@@ -600,8 +600,24 @@ export function findElementByTextContent(source: string, textContent: string): E
 
     // Search for JSX elements containing this text
     // Look for patterns like: >text content< or >{text}< or className="...">{text}
-    const textIndex = source.indexOf(cleanText);
-    if (textIndex === -1) return null;
+
+    // Create a flexible regex that allows for arbitrary whitespace (newlines) between words
+    // Escape special regex characters
+    const escapedText = cleanText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const flexiblePattern = escapedText.replace(/\s+/g, '\\s+');
+    const textRegex = new RegExp(flexiblePattern);
+
+    console.log(`[StyleModifier] Searching for text pattern: ${flexiblePattern.slice(0, 100)}...`);
+
+    const match = source.match(textRegex);
+    if (!match) {
+        console.log('[StyleModifier] Text regex match failed.');
+        return null;
+    }
+
+    console.log(`[StyleModifier] Text match found at index ${match.index}`);
+    // const textRegexResult = match; // Unused
+    const textIndex = match.index!;
 
     // Find the opening tag before this text
     let searchStart = textIndex;
@@ -976,18 +992,55 @@ export function applyStyleChangesToSource(
     let elementInfo: ElementLocationResult | null = null;
 
     if (locOptions.lineNumber) {
+        console.log(`[StyleModifier] Attempting lookup by line number: ${locOptions.lineNumber}`);
         elementInfo = findElementByLineNumber(modified, locOptions.lineNumber);
+
+        // VALIDATION: If we found an element by line number, verify it matches the expected className (if provided)
+        // This prevents updating the wrong element if the line number is stale/incorrect (e.g. pointing to parent)
+        if (elementInfo && locOptions.className && elementInfo.className) {
+            const sourceClass = elementInfo.className.trim();
+            // Only validate if source class is a string literal (not an expression or empty)
+            if (!sourceClass.startsWith('{') && sourceClass.length > 0) {
+                const domClass = locOptions.className;
+
+                // Heuristic: Source classes should generally be present in DOM classes
+                // We check for overlap. If the source has classes, at least SOME should assume to be in DOM.
+                const sourceTokens = sourceClass.split(/\s+/).filter(t => t.length > 0);
+                const domTokens = new Set(domClass.split(/\s+/));
+
+                // If source has classes, check how many are in DOM
+                if (sourceTokens.length > 0) {
+                    const matchCount = sourceTokens.filter(t => domTokens.has(t)).length;
+                    const matchRatio = matchCount / sourceTokens.length;
+
+                    // If match ratio is too low (< 30%), assume mismatch
+                    // Exception: short class lists (1-2 items) might be conditional, be careful.
+                    // But if source has "wrapper flex" and DOM has "text-red mt-4", overlap is 0.
+                    if (matchRatio < 0.3 && matchCount < 2) {
+                        console.log(`[StyleModifier] Validation Failed: Line ${locOptions.lineNumber} element classes ("${sourceClass}") do not match DOM classes ("${domClass.slice(0, 30)}..."). Match ratio: ${matchRatio}`);
+                        console.log('[StyleModifier] Falling back to other strategies.');
+                        elementInfo = null;
+                    } else {
+                        console.log(`[StyleModifier] Validation Passed: Match ratio ${matchRatio.toFixed(2)}`);
+                    }
+                }
+            }
+        }
+
         if (elementInfo) console.log('[StyleModifier] Found element by line number:', locOptions.lineNumber);
+        else console.log('[StyleModifier] Line number lookup failed or rejected by validation');
     }
 
     // Strategy 2: Find by Selector (ID)
     if (!elementInfo && locOptions.selector) {
+        console.log(`[StyleModifier] Attempting lookup by selector: ${locOptions.selector}`);
         elementInfo = findElementBySelector(modified, locOptions.selector);
         if (elementInfo) console.log('[StyleModifier] Found element by selector:', locOptions.selector);
     }
 
     // Strategy 3: Find by Text Content
     if (!elementInfo && locOptions.textContent) {
+        console.log(`[StyleModifier] Attempting lookup by text content: "${locOptions.textContent.slice(0, 30)}..."`);
         elementInfo = findElementByTextContent(modified, locOptions.textContent);
         if (elementInfo) console.log('[StyleModifier] Found element by text content');
     }
@@ -1004,6 +1057,99 @@ export function applyStyleChangesToSource(
         }
         return { modified, applied, failed };
     }
+
+    // --- SHORTHAND EXPLOSION LOGIC ---
+    // If we are modifying a specific side (e.g. marginTop), but the element has a shorthand (e.g. my-4),
+    // we must first "explode" the shorthand into explicit classes (mt-4 mb-4) to avoid conflicts
+    // and ensure we don't accidentally remove the other side (marginBottom) if we were to just overwrite.
+
+    let currentClassName = elementInfo.className;
+
+    // Check what we are changing
+    const changingProps = new Set(changes.map(c => c.property));
+    const changingTop = changingProps.has('marginTop');
+    const changingBottom = changingProps.has('marginBottom');
+    const changingLeft = changingProps.has('marginLeft');
+    const changingRight = changingProps.has('marginRight');
+
+    const explodedClasses: string[] = [];
+    const classesToRemove: string[] = [];
+
+    // Helper to add classes if check(cls) is true
+    const scanClasses = (regex: RegExp, handler: (match: RegExpMatchArray) => void) => {
+        let match;
+        const clsList = currentClassName.split(/\s+/);
+        for (const cls of clsList) {
+            if (match = cls.match(regex)) {
+                handler(match);
+            }
+        }
+    };
+
+    // 1. Handle 'my-' conflicts (Vertical Margin)
+    if (changingTop || changingBottom) {
+        // Look for my-{val}
+        scanClasses(/^-?my-(.+)$/, (match) => {
+            const val = match[1];
+            explodedClasses.push(`mt-${val}`);
+            explodedClasses.push(`mb-${val}`);
+            classesToRemove.push(match[0]);
+        });
+    }
+
+    // 2. Handle 'mx-' conflicts (Horizontal Margin)
+    if (changingLeft || changingRight) {
+        // Look for mx-{val}
+        scanClasses(/^-?mx-(.+)$/, (match) => {
+            const val = match[1];
+            explodedClasses.push(`ml-${val}`);
+            explodedClasses.push(`mr-${val}`);
+            classesToRemove.push(match[0]);
+        });
+    }
+
+    // 3. Handle 'm-' conflicts (All Margin)
+    if (changingTop || changingBottom || changingLeft || changingRight) {
+        // Look for m-{val}
+        scanClasses(/^-?m-(.+)$/, (match) => {
+            const val = match[1];
+            explodedClasses.push(`mt-${val}`);
+            explodedClasses.push(`mb-${val}`);
+            explodedClasses.push(`ml-${val}`);
+            explodedClasses.push(`mr-${val}`);
+            classesToRemove.push(match[0]);
+        });
+    }
+
+    if (classesToRemove.length > 0) {
+        // Apply explosion to currentClassName string
+        let newClassList = currentClassName.split(/\s+/).filter(c => !classesToRemove.includes(c));
+        newClassList.push(...explodedClasses);
+
+        // Update the source code with new class list BEFORE applying specific changes
+        // This effectively "migrates" the code to long-hand format
+        const newClassAttr = newClassList.join(' ');
+
+        // We need to replace the specific instance of the class string in the file
+        // elementInfo.start/end point to the className value inside quotes
+
+        // RE-READ source because we might modify it multiple times?
+        // Actually we are in a single pass here.
+
+        const before = modified.slice(0, elementInfo.start);
+        const after = modified.slice(elementInfo.end);
+        modified = before + newClassAttr + after;
+
+        // Update elementInfo to reflect the change for subsequent steps
+        elementInfo = {
+            ...elementInfo,
+            className: newClassAttr,
+            end: elementInfo.start + newClassAttr.length
+        };
+
+        console.log('[StyleModifier] Exploded shorthands:', classesToRemove, '->', explodedClasses);
+    }
+    // ---------------------------------
 
     // Process each change
     for (const change of changes) {
