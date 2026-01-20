@@ -416,7 +416,7 @@ async function applyStyleChanges(
         // 4. If Tailwind failed, try inline styles
         if (result.applied.length === 0 && result.failed.length > 0) {
             // console.log('[DESIGN_MODE] Tailwind modification failed, trying inline styles');
-            result = applyInlineStylesToSource(originalContent, changes, textContent);
+            result = applyInlineStylesToSource(originalContent, changes, options);
         }
 
         // 5. Check if any changes were actually applied

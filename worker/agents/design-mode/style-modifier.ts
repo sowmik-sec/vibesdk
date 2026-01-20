@@ -1035,51 +1035,72 @@ export function applyStyleChangesToSource(
 export function applyInlineStylesToSource(
     sourceCode: string,
     changes: DesignModeStyleChange[],
-    textContent?: string
+    options: ElementLocationOptions | string
 ): { modified: string; applied: string[]; failed: string[] } {
     const applied: string[] = [];
     const failed: string[] = [];
     let modified = sourceCode;
 
-    if (!textContent) {
+    // Normalize options
+    const locOptions: ElementLocationOptions = typeof options === 'string'
+        ? { textContent: options }
+        : options;
+
+    // Use the same waterfall strategy as applyStyleChangesToSource
+    let elementInfo: ElementLocationResult | null = null;
+
+    // Strategy 1: Find by Line Number (Most Accurate)
+    if (locOptions.lineNumber) {
+        elementInfo = findElementByLineNumber(modified, locOptions.lineNumber);
+        if (elementInfo) console.log('[StyleModifier:Inline] Found element by line number:', locOptions.lineNumber);
+    }
+
+    // Strategy 2: Find by Selector (ID)
+    if (!elementInfo && locOptions.selector) {
+        elementInfo = findElementBySelector(modified, locOptions.selector);
+        if (elementInfo) console.log('[StyleModifier:Inline] Found element by selector:', locOptions.selector);
+    }
+
+    // Strategy 3: Find by Text Content
+    if (!elementInfo && locOptions.textContent) {
+        elementInfo = findElementByTextContent(modified, locOptions.textContent);
+        if (elementInfo) console.log('[StyleModifier:Inline] Found element by text content');
+    }
+
+    // Strategy 4: Find by className
+    if (!elementInfo && locOptions.className) {
+        elementInfo = findElementByClassName(modified, locOptions.className);
+        if (elementInfo) console.log('[StyleModifier:Inline] Found element by className');
+    }
+
+    if (!elementInfo) {
         for (const change of changes) {
-            failed.push(`${change.property}: No text content to locate element`);
+            failed.push(`${change.property}: Could not locate element for inline style`);
         }
         return { modified, applied, failed };
     }
 
-    // Find the element
-    const cleanText = textContent.trim().slice(0, 50);
-    const textIndex = modified.indexOf(cleanText);
+    // We have the element location/content. Now we need to parse it to insert styles.
+    // The elementInfo gives us start/end of the className or insertion point.
+    // We need to find the whole tag content to parse existing styles.
 
-    if (textIndex === -1) {
+    // Find the start of the tag (<) by searching backwards from elementInfo.start
+    let tagStart = elementInfo.start;
+    while (tagStart > 0 && modified[tagStart] !== '<') {
+        tagStart--;
+    }
+
+    // Find the end of the tag (>)
+    const tagEnd = modified.indexOf('>', elementInfo.end);
+
+    if (modified[tagStart] !== '<' || tagEnd === -1) {
         for (const change of changes) {
-            failed.push(`${change.property}: Could not find element with text content`);
+            failed.push(`${change.property}: Could not parse element tag boundaries`);
         }
         return { modified, applied, failed };
     }
 
-    // Find the opening tag
-    let searchStart = textIndex;
-    let depth = 0;
-    while (searchStart > 0) {
-        searchStart--;
-        if (modified[searchStart] === '>') depth++;
-        if (modified[searchStart] === '<') {
-            if (depth === 1) break;
-            depth--;
-        }
-    }
-
-    const tagEnd = modified.indexOf('>', searchStart);
-    if (tagEnd === -1) {
-        for (const change of changes) {
-            failed.push(`${change.property}: Could not parse element tag`);
-        }
-        return { modified, applied, failed };
-    }
-
-    const tagContent = modified.slice(searchStart, tagEnd + 1);
+    const tagContent = modified.slice(tagStart, tagEnd + 1);
 
     // Check for existing style attribute
     const styleMatch = tagContent.match(/style\s*=\s*{{\s*([^}]*)\s*}}/);
@@ -1115,14 +1136,14 @@ export function applyInlineStylesToSource(
 
     // Replace or insert the style attribute
     if (styleMatch) {
-        const styleAttrStart = searchStart + tagContent.indexOf(styleMatch[0]);
+        const styleAttrStart = tagStart + tagContent.indexOf(styleMatch[0]);
         const styleAttrEnd = styleAttrStart + styleMatch[0].length;
         modified = modified.slice(0, styleAttrStart) + newStyleAttr + modified.slice(styleAttrEnd);
     } else {
         // Insert after tag name
         const tagNameMatch = tagContent.match(/<(\w+)/);
-        if (tagNameMatch) {
-            const insertPos = searchStart + tagNameMatch[0].length;
+        if (tagNameMatch && tagNameMatch.index !== undefined) {
+            const insertPos = tagStart + tagNameMatch.index + tagNameMatch[0].length;
             modified = modified.slice(0, insertPos) + ` ${newStyleAttr}` + modified.slice(insertPos);
         }
     }
