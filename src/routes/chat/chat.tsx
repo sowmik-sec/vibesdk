@@ -698,8 +698,7 @@ export default function Chat() {
 								onBatchStyleChange={(changes) => designMode.applyStyles(changes)}
 								onStylePreview={(p, v) => designMode.previewStyle(p, v)}
 								onClearPreview={designMode.clearPreview}
-								onTextChange={designMode.previewText}
-								onTextCommit={designMode.commitText}
+
 								onAIPrompt={designMode.sendAIPrompt}
 								onGoToCode={designMode.goToCode}
 								onUndo={designMode.undo}

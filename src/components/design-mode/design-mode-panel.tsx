@@ -22,7 +22,7 @@ import {
     Cloudy,
 } from 'lucide-react';
 import type { DesignModeElementData } from '@/lib/design-mode/design-mode-protocol';
-import { ContentControl } from './style-controls/content-control';
+
 import { TypographyControl } from './style-controls/typography-control';
 import { ColorControl } from './style-controls/color-control';
 import { BackgroundControl } from './style-controls/background-control';
@@ -43,8 +43,6 @@ export interface DesignModePanelProps {
     onBatchStyleChange?: (changes: Array<{ property: string; value: string }>) => void;
     onStylePreview: (property: string, value: string) => void;
     onClearPreview: () => void;
-    onTextChange?: (text: string) => void;
-    onTextCommit?: (text: string) => void;
     onAIPrompt: (prompt: string) => void;
     onGoToCode: () => void;
     onUndo: () => void;
@@ -173,10 +171,7 @@ function AIPromptInput({ onSubmit, disabled }: { onSubmit: (prompt: string) => v
 // Helper: Check if element is text element
 // ============================================================================
 
-function isTextElement(tagName: string): boolean {
-    const textTags = ['P', 'SPAN', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'A', 'BUTTON', 'LABEL', 'LI', 'TD', 'TH', 'FIGCAPTION', 'BLOCKQUOTE'];
-    return textTags.includes(tagName.toUpperCase());
-}
+
 
 // ============================================================================
 // Main Panel Component
@@ -188,8 +183,6 @@ export function DesignModePanel({
     onBatchStyleChange,
     onStylePreview,
     onClearPreview,
-    onTextChange,
-    onTextCommit,
     onAIPrompt,
     onGoToCode,
     onUndo,
@@ -238,7 +231,7 @@ export function DesignModePanel({
         );
     }
 
-    const showContentEditor = isTextElement(selectedElement.tagName) && onTextChange && onTextCommit;
+
 
     return (
         <div className="h-full bg-bg-1 flex flex-col">
@@ -314,16 +307,7 @@ export function DesignModePanel({
                 {/* AI Prompt */}
                 <AIPromptInput onSubmit={onAIPrompt} disabled={isSyncing} />
 
-                {/* Content Editor - Only for text elements */}
-                {showContentEditor && (
-                    <div className="px-3 py-3 border-b border-text/10">
-                        <ContentControl
-                            textContent={selectedElement.textContent || ''}
-                            onTextChange={onTextChange!}
-                            onTextCommit={onTextCommit!}
-                        />
-                    </div>
-                )}
+
 
                 {/* Typography */}
                 <Section title="Typography" icon={Type}>
