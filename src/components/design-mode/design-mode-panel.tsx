@@ -349,6 +349,7 @@ export function DesignModePanel({
                         styles={selectedElement.computedStyles}
                         tailwindClasses={selectedElement.tailwindClasses}
                         onChange={handleStyleChange}
+                        onBatchChange={onBatchStyleChange}
                         onPreview={onStylePreview}
                         onClearPreview={onClearPreview}
                     />

@@ -11,6 +11,7 @@ interface LayoutControlProps {
     styles: DesignModeComputedStyles;
     tailwindClasses: string[];
     onChange: (property: string, value: string, commit: boolean) => void;
+    onBatchChange?: (changes: Array<{ property: string; value: string }>) => void;
     onPreview: (property: string, value: string) => void;
     onClearPreview: () => void;
 }
@@ -19,6 +20,7 @@ export function LayoutControl({
     styles,
     tailwindClasses: _tailwindClasses,
     onChange,
+    onBatchChange,
     onPreview,
     onClearPreview,
 }: LayoutControlProps) {
@@ -44,6 +46,29 @@ export function LayoutControl({
     const handlePaddingChange = useCallback((property: string, value: string, commit: boolean) => {
         onChange(property, value, commit);
     }, [onChange]);
+
+    const handleBatchSpacingChange = useCallback((
+        type: 'margin' | 'padding',
+        changes: Array<{ side: string; value: string }>,
+        commit: boolean
+    ) => {
+        if (!commit || !onBatchChange) {
+            // For preview (commit=false), or no batch support, fallback to individual updates (though ExpandableSpacing handles preview via hover)
+            // Actually ExpandableSpacing calls handleChange with commit=true for selection
+            // We should use individual onChange if no onBatchChange
+            changes.forEach(({ side, value }) => {
+                const property = `${type}${side.charAt(0).toUpperCase() + side.slice(1)}`;
+                onChange(property, value, commit);
+            });
+            return;
+        }
+
+        const mappedChanges = changes.map(({ side, value }) => ({
+            property: `${type}${side.charAt(0).toUpperCase() + side.slice(1)}`,
+            value
+        }));
+        onBatchChange(mappedChanges);
+    }, [onChange, onBatchChange]);
 
     const handleMarginHoverStart = useCallback((side: string, value: string) => {
         if (side === 'all') {
@@ -88,6 +113,7 @@ export function LayoutControl({
                     property="margin"
                     values={marginValues}
                     onChange={handleMarginChange}
+                    onBatchChange={(changes, commit) => handleBatchSpacingChange('margin', changes, commit)}
                     onHoverStart={handleMarginHoverStart}
                     onHoverEnd={onClearPreview}
                 />
@@ -100,6 +126,7 @@ export function LayoutControl({
                     property="padding"
                     values={paddingValues}
                     onChange={handlePaddingChange}
+                    onBatchChange={(changes, commit) => handleBatchSpacingChange('padding', changes, commit)}
                     onHoverStart={handlePaddingHoverStart}
                     onHoverEnd={onClearPreview}
                 />

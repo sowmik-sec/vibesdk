@@ -107,6 +107,8 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
 
     // Track preview styles for cleanup
     const previewStylesRef = useRef<Map<string, Record<string, string>>>(new Map());
+    // Track committed (but not deployed) styles to persist across temporary previews
+    const committedStylesRef = useRef<Map<string, Record<string, string>>>(new Map());
 
     // Debounce timer for backend persistence (to prevent immediate page reload)
     // const persistenceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -277,31 +279,51 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         }
 
         // Track preview for cleanup
-        const existing = previewStylesRef.current.get(selectedElement.selector) || {};
-        existing[property] = value;
-        previewStylesRef.current.set(selectedElement.selector, existing);
+        // Start with current preview styles (to support batch previews like Left+Right),
+        // fallback to committed styles (if any)
+        const currentPreview = previewStylesRef.current.get(selectedElement.selector);
+        const committed = committedStylesRef.current.get(selectedElement.selector) || {};
+
+        const base = currentPreview || committed;
+
+        // Merge with new preview
+        const newPreview = { ...base, [property]: value };
+        previewStylesRef.current.set(selectedElement.selector, newPreview);
 
         console.log('[useDesignMode] Sending preview to iframe via postMessage', {
             selector: selectedElement.selector,
-            styles: existing
+            styles: newPreview
         });
 
         // Send to iframe via postMessage (cross-origin safe)
         sendToIframe({
             type: 'design_mode_preview_style',
             selector: selectedElement.selector,
-            styles: existing,
+            styles: newPreview,
         });
-    }, [selectedElement, sendToIframe]);
+    }, [selectedElement, sendToIframe]); // removed unnecessary closing brace handled by tool range
 
     const clearPreview = useCallback(() => {
         if (!selectedElement) return;
 
-        previewStylesRef.current.delete(selectedElement.selector);
-        sendToIframe({
-            type: 'design_mode_clear_preview',
-            selector: selectedElement.selector,
-        });
+        const committed = committedStylesRef.current.get(selectedElement.selector);
+
+        if (committed && Object.keys(committed).length > 0) {
+            // Revert to committed state
+            previewStylesRef.current.set(selectedElement.selector, { ...committed });
+            sendToIframe({
+                type: 'design_mode_preview_style',
+                selector: selectedElement.selector,
+                styles: committed,
+            });
+        } else {
+            // No committed styles, clear everything
+            previewStylesRef.current.delete(selectedElement.selector);
+            sendToIframe({
+                type: 'design_mode_clear_preview',
+                selector: selectedElement.selector,
+            });
+        }
     }, [selectedElement, sendToIframe]);
 
     // ========================================================================
@@ -322,18 +344,22 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         }
 
         // IMMEDIATELY apply visual preview via postMessage
-        const existingPreview = previewStylesRef.current.get(selectedElement.selector) || {};
+        // Update committed styles
+        const committed = committedStylesRef.current.get(selectedElement.selector) || {};
         changes.forEach(({ property, value }) => {
-            existingPreview[property] = value;
+            committed[property] = value;
         });
-        previewStylesRef.current.set(selectedElement.selector, existingPreview);
+        committedStylesRef.current.set(selectedElement.selector, committed);
+
+        // Update preview styles (matches committed since we just applied)
+        previewStylesRef.current.set(selectedElement.selector, { ...committed });
 
         // Send preview to iframe for instant visual feedback
-        console.log('[useDesignMode] Sending preview via postMessage:', existingPreview);
+        console.log('[useDesignMode] Sending preview via postMessage:', committed);
         sendToIframe({
             type: 'design_mode_preview_style',
             selector: selectedElement.selector,
-            styles: existingPreview,
+            styles: committed,
         });
 
         // If no websocket, just keep the visual preview (won't persist to code)
@@ -612,6 +638,10 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
 
             // Clear pending changes flag
             setHasPendingChanges(false);
+
+            // Clear committed styles as the new page load will have them baked in
+            // When design_mode_ready fires, we want to start fresh
+            committedStylesRef.current.clear();
 
             console.log('[useDesignMode] Preview refresh requested');
         } catch (error) {

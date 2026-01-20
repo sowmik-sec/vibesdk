@@ -655,8 +655,106 @@ export async function handleDesignModeTextUpdate(
             return;
         }
 
-        // 4. Direct string replacement
-        const updatedContent = originalContent.replace(oldText, newText);
+        // 4. Context-aware string replacement
+        // Instead of naive replace(), we try to find the "content" occurrence
+
+        let replacementIndex = -1;
+        let matchLength = 0;
+
+        // Dynamic import of style modifier helpers
+        const { findElementBySelector, findElementByLineNumber } = await import('./style-modifier');
+
+        // Try to narrow search scope
+        let searchStart = 0;
+
+        // Strategy 1: Use Line Number from React-Grab (High Precision)
+        if (sourceLocation?.lineNumber) {
+            const location = findElementByLineNumber(originalContent, sourceLocation.lineNumber);
+            if (location) {
+                // Start searching after the opening tag (where content would be)
+                searchStart = location.end;
+                logger.info('Text update: narrowed search scope using line number', { lineNumber: sourceLocation.lineNumber, searchStart });
+            }
+        }
+
+        // Strategy 2: Use Selector (Medium Precision) - if line number failed or missing
+        if (searchStart === 0 && selector) {
+            const location = findElementBySelector(originalContent, selector);
+            if (location) {
+                searchStart = location.end;
+                logger.info('Text update: narrowed search scope using selector', { selector, searchStart });
+            }
+        }
+
+        // Helper to check if a match is "safe" (looks like content or string literal, not code identifier)
+        const isSafeMatch = (index: number): boolean => {
+            // Check previous character (ignoring whitespace)
+            let i = index - 1;
+            while (i >= 0 && /\s/.test(originalContent[i])) i--;
+            const prevChar = originalContent[i];
+
+            // Check next character (ignoring whitespace)
+            let j = index + oldText.length;
+            while (j < originalContent.length && /\s/.test(originalContent[j])) j++;
+            const nextChar = originalContent[j];
+
+            // Safety Heuristics:
+
+            // 1. It is a JSX Text Node if preceded by '>'
+            if (prevChar === '>') return true;
+
+            // 2. It is a String Literal if surrounded by quotes
+            if ((prevChar === '"' || prevChar === "'") && (nextChar === '"' || nextChar === "'")) return true;
+
+            // 3. It is UNSAFE if followed by ':' (Object key / Type definition)
+            if (nextChar === ':') return false;
+
+            // 4. It is UNSAFE if preceded by '.' (Property access)
+            if (prevChar === '.') return false;
+
+            // 5. It is UNSAFE if part of a longer identifier (preceded/followed by word chars)
+            // e.g. "completed" in "task.completed()" or "uncompleted"
+            const isWordChar = (char: string) => /[a-zA-Z0-9_]/.test(char);
+            if (isWordChar(originalContent[index - 1] || '') || isWordChar(originalContent[index + oldText.length] || '')) {
+                return false;
+            }
+
+            // Fallback: If strict checks pass (not unsafe), assume acceptable
+            return true;
+        };
+
+        // Search for occurrences starting from restricted scope
+        let pos = originalContent.indexOf(oldText, searchStart);
+
+        // If not found in restricted scope, try global (unless searchStart was 0)
+        if (pos === -1 && searchStart > 0) {
+            pos = originalContent.indexOf(oldText, 0);
+        }
+
+        // Iterate through matches to find a safe one
+        while (pos !== -1) {
+            if (isSafeMatch(pos)) {
+                replacementIndex = pos;
+                matchLength = oldText.length;
+                break;
+            }
+            pos = originalContent.indexOf(oldText, pos + 1);
+        }
+
+        if (replacementIndex === -1) {
+            // If we couldn't find a "safe" match, check if we should force identifying the UNSAFE one for debugging
+            // or just fail. Failing is safer than corrupting code.
+            logger.warn('No safe text occurrence found to replace', { targetFilePath, oldText, selector });
+            connection.send(JSON.stringify({
+                type: 'design_mode_style_updated',
+                success: false,
+                selector,
+                error: 'Could not find a safe content match for replacement. The text might be generated dynamically or is an identifier.',
+            }));
+            return;
+        }
+
+        const updatedContent = originalContent.slice(0, replacementIndex) + newText + originalContent.slice(replacementIndex + matchLength);
 
         if (updatedContent === originalContent) {
             logger.warn('No changes made to file', { targetFilePath });

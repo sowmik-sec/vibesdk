@@ -86,6 +86,7 @@ export interface ExpandableSpacingProps {
         left: string;
     };
     onChange: (side: string, value: string, commit: boolean) => void;
+    onBatchChange?: (changes: Array<{ side: string; value: string }>, commit: boolean) => void;
     onHoverStart?: (side: string, value: string) => void;
     onHoverEnd?: () => void;
     className?: string;
@@ -95,6 +96,7 @@ export function ExpandableSpacing({
     property,
     values,
     onChange,
+    onBatchChange,
     onHoverStart,
     onHoverEnd,
     className,
@@ -110,20 +112,43 @@ export function ExpandableSpacing({
     const handleChange = useCallback((side: string, value: string, commit: boolean) => {
         if (isLocked) {
             // Apply to all sides
-            onChange(`${property}Top`, value, commit);
-            onChange(`${property}Right`, value, commit);
-            onChange(`${property}Bottom`, value, commit);
-            onChange(`${property}Left`, value, commit);
+            if (onBatchChange) {
+                onBatchChange([
+                    { side: 'top', value },
+                    { side: 'right', value },
+                    { side: 'bottom', value },
+                    { side: 'left', value },
+                ], commit);
+            } else {
+                onChange(`${property}Top`, value, commit);
+                onChange(`${property}Right`, value, commit);
+                onChange(`${property}Bottom`, value, commit);
+                onChange(`${property}Left`, value, commit);
+            }
         } else if (side === 'vertical') {
-            onChange(`${property}Top`, value, commit);
-            onChange(`${property}Bottom`, value, commit);
+            if (onBatchChange) {
+                onBatchChange([
+                    { side: 'top', value },
+                    { side: 'bottom', value },
+                ], commit);
+            } else {
+                onChange(`${property}Top`, value, commit);
+                onChange(`${property}Bottom`, value, commit);
+            }
         } else if (side === 'horizontal') {
-            onChange(`${property}Left`, value, commit);
-            onChange(`${property}Right`, value, commit);
+            if (onBatchChange) {
+                onBatchChange([
+                    { side: 'left', value },
+                    { side: 'right', value },
+                ], commit);
+            } else {
+                onChange(`${property}Left`, value, commit);
+                onChange(`${property}Right`, value, commit);
+            }
         } else {
             onChange(`${property}${side.charAt(0).toUpperCase() + side.slice(1)}`, value, commit);
         }
-    }, [property, isLocked, onChange]);
+    }, [property, isLocked, onChange, onBatchChange]);
 
     const handleHoverStart = useCallback((side: string, value: string) => {
         if (isLocked) {

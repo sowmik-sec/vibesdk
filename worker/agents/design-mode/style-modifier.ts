@@ -582,7 +582,7 @@ function getExistingClassPattern(prefix: string): RegExp {
 // Source Code Modification
 // ============================================================================
 
-interface ElementLocationResult {
+export interface ElementLocationResult {
     start: number;
     end: number;
     className: string;
@@ -593,7 +593,7 @@ interface ElementLocationResult {
  * Find JSX elements in source code that match the selector
  * Returns the className attribute location(s)
  */
-function findElementByTextContent(source: string, textContent: string): ElementLocationResult | null {
+export function findElementByTextContent(source: string, textContent: string): ElementLocationResult | null {
     if (!textContent || textContent.length < 3) return null;
 
     const cleanText = textContent.trim().slice(0, 50);
@@ -671,7 +671,7 @@ function findElementByTextContent(source: string, textContent: string): ElementL
 /**
  * Find element by source line number (1-indexed)
  */
-function findElementByLineNumber(source: string, lineNumber: number): ElementLocationResult | null {
+export function findElementByLineNumber(source: string, lineNumber: number): ElementLocationResult | null {
     if (!lineNumber || lineNumber < 1) return null;
 
     const lines = source.split('\n');
@@ -757,7 +757,7 @@ function findElementByLineNumber(source: string, lineNumber: number): ElementLoc
 /**
  * Find element by CSS selector (ID or class)
  */
-function findElementBySelector(source: string, selector: string): ElementLocationResult | null {
+export function findElementBySelector(source: string, selector: string): ElementLocationResult | null {
     if (!selector) return null;
 
     // Extract ID
