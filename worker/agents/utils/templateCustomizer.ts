@@ -412,48 +412,85 @@ function injectDesignModeScript(html: string): string {
   let textEditOverlay = null;
   let isEditingText = false;
   
-  // Check if element contains only static text (no JSX expressions)
-  function isStaticTextElement(el) {
-    if (!el) return false;
-    const tag = el.tagName.toLowerCase();
-    const textTags = ["h1","h2","h3","h4","h5","h6","p","span","label","a","button","li","td","th"];
-    if (!textTags.includes(tag)) return false;
-    // Check if it has only text content (no child elements with text)
-    const text = el.textContent || "";
-    if (!text.trim()) return false;
-    // If element has children that contain text, might be complex
-    for (let child of el.children) {
-      if (child.textContent && child.textContent.trim()) return false;
+  // Helper to find the specific text node at coordinates
+  function getTextNodeAtPoint(x, y) {
+    if (document.caretRangeFromPoint) {
+      const range = document.caretRangeFromPoint(x, y);
+      if (range && range.startContainer.nodeType === 3) {
+        return range.startContainer;
+      }
+    } else if (document.caretPositionFromPoint) {
+      const range = document.caretPositionFromPoint(x, y);
+      if (range && range.offsetNode.nodeType === 3) {
+        return range.offsetNode;
+      }
     }
-    return true;
+    return null;
   }
-  
+
   async function handleDblClick(e) {
     if (!isActive || isEditingText) return;
     e.preventDefault();
     e.stopPropagation();
     
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    if (!el || !isStaticTextElement(el)) {
-      console.log("[VibeSDK] Double-click ignored: not a static text element");
-      return;
+    // 1. Try to find precise text node
+    let targetNode = getTextNodeAtPoint(e.clientX, e.clientY);
+    let targetEl = null;
+
+    if (targetNode) {
+      targetEl = targetNode.parentElement;
+    } else {
+      // Fallback to element
+      targetEl = document.elementFromPoint(e.clientX, e.clientY);
     }
     
-    console.log("[VibeSDK] Double-click on text element:", el.tagName, el.textContent?.substring(0, 30));
+    if (!targetEl) return;
+
+    // 2. Validate element type
+    const tag = targetEl.tagName.toLowerCase();
+    const allowedTags = ["h1","h2","h3","h4","h5","h6","p","span","label","a","button","li","td","th","div","caption","figcaption"];
+    if (!allowedTags.includes(tag)) return;
+    
+    // 3. Determine text to edit and safety
+    let textToEdit = "";
+    let rect = null;
+    let contextElement = null; // The element used for ID/Selector generation
+
+    if (targetNode) {
+      // Specific text node clicked - Edit JUST this node
+      textToEdit = targetNode.textContent;
+      const range = document.createRange();
+      range.selectNodeContents(targetNode);
+      rect = range.getBoundingClientRect();
+      contextElement = targetEl; // Selector comes from parent
+    } else {
+      // Element clicked (padding/gap?) - Edit whole element IF simple
+      // We block editing complex elements (with children) to avoid destroying structure
+      // unless it's just text
+      if (targetEl.children.length > 0) {
+        console.log("[VibeSDK] Ignoring complex element edit (no text node matched)");
+        return; 
+      }
+      textToEdit = targetEl.textContent || "";
+      rect = targetEl.getBoundingClientRect();
+      contextElement = targetEl;
+    }
+    
+    if (!textToEdit.trim() && !targetNode) return; // Nothing to edit
+
+    console.log("[VibeSDK] Editing text:", textToEdit.substring(0, 30));
     
     // Create text edit overlay
     isEditingText = true;
-    const rect = el.getBoundingClientRect();
-    const originalText = el.textContent || "";
     
     // Create overlay input
     textEditOverlay = document.createElement("div");
     textEditOverlay.id = "__vibesdk_text_edit";
-    textEditOverlay.style.cssText = "position:fixed;left:" + (rect.left - 2) + "px;top:" + (rect.top - 2) + "px;min-width:" + Math.max(rect.width + 4, 100) + "px;min-height:" + (rect.height + 4) + "px;z-index:1000001;background:white;border:2px solid #3b82f6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);padding:0;margin:0;";
+    textEditOverlay.style.cssText = "position:fixed;left:" + (rect.left - 4) + "px;top:" + (rect.top - 4) + "px;min-width:" + Math.max(rect.width + 8, 100) + "px;min-height:" + (rect.height + 8) + "px;z-index:1000001;background:white;border:2px solid #3b82f6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);padding:0;margin:0;";
     
     const input = document.createElement("textarea");
-    input.value = originalText;
-    const cs = getComputedStyle(el);
+    input.value = textToEdit;
+    const cs = getComputedStyle(contextElement);
     input.style.cssText = "width:100%;height:100%;min-height:" + rect.height + "px;border:none;outline:none;resize:both;font-family:" + cs.fontFamily + ";font-size:" + cs.fontSize + ";font-weight:" + cs.fontWeight + ";line-height:" + cs.lineHeight + ";color:black;padding:4px 6px;margin:0;box-sizing:border-box;";
     textEditOverlay.appendChild(input);
     document.body.appendChild(textEditOverlay);
@@ -464,16 +501,17 @@ function injectDesignModeScript(html: string): string {
     
     // Store context for commit
     const context = {
-      element: el,
-      originalText: originalText,
-      selector: genSelector(el),
+      targetNode: targetNode,
+      targetEl: targetEl, // fallback if node isn't set
+      originalText: textToEdit,
+      selector: genSelector(contextElement),
       sourceLocation: null
     };
     
     // Get source location
     if (getStack) {
       try {
-        const stack = await getStack(el);
+        const stack = await getStack(contextElement);
         if (stack && stack.length > 0 && stack[0].source) {
           let filePath = stack[0].source.fileName || "";
           const match = filePath.match(/\\/(?:workspace\\/[^\\/]+|app)\\/(.+)/);
@@ -490,9 +528,13 @@ function injectDesignModeScript(html: string): string {
       const newText = input.value;
       cleanup();
       
-      if (newText !== context.originalText && newText.trim()) {
+      if (newText !== context.originalText) {
         // Update DOM immediately
-        context.element.textContent = newText;
+        if (context.targetNode) {
+            context.targetNode.textContent = newText;
+        } else {
+            context.targetEl.textContent = newText;
+        }
         
         // Send to parent for code update
         console.log("[VibeSDK] Committing text edit:", { old: context.originalText, new: newText });
@@ -541,6 +583,17 @@ function injectDesignModeScript(html: string): string {
     return str.replace(/([A-Z])/g, '-$1').toLowerCase();
   }
   
+  // Map CSS properties to Tailwind class patterns they conflict with
+  const tailwindConflicts = {
+      'fontSize': /^text-(xs|sm|base|lg|xl|\d+xl)$/,
+      'fontWeight': /^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/,
+      'textAlign': /^text-(left|center|right|justify|start|end)$/,
+      'color': /^text-\w+(-\d+)?$/, // Matches text-red-500, text-white, text-gradient
+      'backgroundColor': /^bg-\w+(-\d+)?$/,
+      'padding': /^p(|[tblrxy])?-\d+$/,
+      'margin': /^m(|[tblrxy])?-\d+$/
+  };
+  
   function applyPreview(styles) {
     const el = selectedElement || window.__vibesdk_selected;
     console.log("[VibeSDK] applyPreview called", { hasElement: !!el, styles });
@@ -548,13 +601,35 @@ function injectDesignModeScript(html: string): string {
       console.warn("[VibeSDK] applyPreview: No element to apply styles to!");
       return;
     }
-    if (!el.__orig) el.__orig = {};
+    if (!el.__orig) el.__orig = { classes: el.className };
+    
+    // Get current classes as array
+    let classes = el.className.split(/\s+/).filter(Boolean);
+    let classesChanged = false;
+
     for (const p in styles) {
       const kebabProp = toKebabCase(p);
       if (!(p in el.__orig)) el.__orig[p] = el.style.getPropertyValue(kebabProp) || "";
       console.log("[VibeSDK] Setting style:", kebabProp, "=", styles[p]);
       el.style.setProperty(kebabProp, styles[p], "important");
+
+      // Handle class conflicts (e.g. remove text-gradient if color is set)
+      const conflictPattern = tailwindConflicts[p];
+      if (conflictPattern) {
+        const initialLen = classes.length;
+        classes = classes.filter(cls => {
+            // Special case for text-gradient when color is set
+            if (p === 'color' && cls === 'text-gradient') return false;
+            return !conflictPattern.test(cls);
+        });
+        if (classes.length !== initialLen) classesChanged = true;
+      }
     }
+
+    if (classesChanged) {
+        el.className = classes.join(' ');
+    }
+
     console.log("[VibeSDK] applyPreview complete, element styles:", el.style.cssText);
     if (el === selectedElement) updateSelectionOverlay();
   }
@@ -564,8 +639,13 @@ function injectDesignModeScript(html: string): string {
     console.log("[VibeSDK] clearPreview called", { hasElement: !!el, hasOrig: !!(el && el.__orig) });
     if (el && el.__orig) {
       for (const p in el.__orig) {
+        if (p === 'classes') continue;
         const kebabProp = toKebabCase(p);
         el.style.setProperty(kebabProp, el.__orig[p]);
+      }
+      // Restore classes
+      if (el.__orig.classes !== undefined) {
+          el.className = el.__orig.classes;
       }
       delete el.__orig;
       if (el === selectedElement) updateSelectionOverlay();

@@ -656,6 +656,29 @@ export function findElementByTextContent(source: string, textContent: string): E
     // If no className exists, find where to insert it (after the tag name)
     const tagNameMatch = tagContent.match(/<(\w+)/);
     if (tagNameMatch) {
+        const tagName = tagNameMatch[1];
+
+        // VALIDATION 1: Check tag name boundary
+        // Tag name must be followed by whitespace, '>', or '/'
+        // Rejects: <string[] (next char is [)
+        const matchEndIndex = tagNameMatch.index! + tagNameMatch[0].length;
+        const nextChar = tagContent[matchEndIndex];
+        if (nextChar && !/[\s>\/]/.test(nextChar)) {
+            return null;
+        }
+
+        // VALIDATION 2: HTML Tag allowlist
+        // If tag starts with lowercase, it MUST be a valid HTML tag.
+        // Rejects: <string>, <number>, <any>, <customVar>
+        if (/^[a-z]/.test(tagName)) {
+            const validHtmlTags = new Set([
+                'a', 'abbr', 'address', 'area', 'article', 'aside', 'audio', 'b', 'base', 'bdi', 'bdo', 'blockquote', 'body', 'br', 'button', 'canvas', 'caption', 'cite', 'code', 'col', 'colgroup', 'data', 'datalist', 'dd', 'del', 'details', 'dfn', 'dialog', 'div', 'dl', 'dt', 'em', 'embed', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'header', 'hgroup', 'hr', 'html', 'i', 'iframe', 'img', 'input', 'ins', 'kbd', 'label', 'legend', 'li', 'link', 'main', 'map', 'mark', 'menu', 'meta', 'meter', 'nav', 'noscript', 'object', 'ol', 'optgroup', 'option', 'output', 'p', 'param', 'picture', 'pre', 'progress', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'script', 'section', 'select', 'small', 'source', 'span', 'strong', 'style', 'sub', 'summary', 'sup', 'svg', 'table', 'tbody', 'td', 'template', 'textarea', 'tfoot', 'th', 'thead', 'time', 'title', 'tr', 'track', 'u', 'ul', 'var', 'video', 'wbr'
+            ]);
+            if (!validHtmlTags.has(tagName)) {
+                return null;
+            }
+        }
+
         const insertPos = searchStart + tagNameMatch[0].length;
         return {
             start: insertPos,
@@ -716,7 +739,27 @@ export function findElementByLineNumber(source: string, lineNumber: number): Ele
     const tagContent = source.slice(foundStart, tagEnd + 1);
 
     // Check if this looks like a valid tag (simple check)
-    if (!tagContent.match(/^<[a-zA-Z]/)) return null;
+    // if (!tagContent.match(/^<[a-zA-Z]/)) return null;
+
+    const tagNameMatch = tagContent.match(/^<(\w+)/);
+    if (!tagNameMatch) return null;
+    const tagName = tagNameMatch[1];
+
+    // VALIDATION 1: Check tag name boundary
+    // Tag name must be followed by whitespace, '>', or '/'
+    if (tagContent.length > tagName.length + 1) {
+        const nextChar = tagContent[tagName.length + 1];
+        if (!/[\s>\/]/.test(nextChar)) return null;
+    }
+
+    // VALIDATION 2: HTML Tag allowlist
+    // If tag starts with lowercase, it MUST be valid HTML
+    if (/^[a-z]/.test(tagName)) {
+        const validHtmlTags = new Set([
+            'a', 'abbr', 'address', 'area', 'article', 'aside', 'audio', 'b', 'base', 'bdi', 'bdo', 'blockquote', 'body', 'br', 'button', 'canvas', 'caption', 'cite', 'code', 'col', 'colgroup', 'data', 'datalist', 'dd', 'del', 'details', 'dfn', 'dialog', 'div', 'dl', 'dt', 'em', 'embed', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'header', 'hgroup', 'hr', 'html', 'i', 'iframe', 'img', 'input', 'ins', 'kbd', 'label', 'legend', 'li', 'link', 'main', 'map', 'mark', 'menu', 'meta', 'meter', 'nav', 'noscript', 'object', 'ol', 'optgroup', 'option', 'output', 'p', 'param', 'picture', 'pre', 'progress', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'script', 'section', 'select', 'small', 'source', 'span', 'strong', 'style', 'sub', 'summary', 'sup', 'svg', 'table', 'tbody', 'td', 'template', 'textarea', 'tfoot', 'th', 'thead', 'time', 'title', 'tr', 'track', 'u', 'ul', 'var', 'video', 'wbr'
+        ]);
+        if (!validHtmlTags.has(tagName)) return null;
+    }
 
     // Find className in the tag
     const classNameMatch = tagContent.match(/className\s*=\s*([\"'`])/);
@@ -740,7 +783,7 @@ export function findElementByLineNumber(source: string, lineNumber: number): Ele
     }
 
     // If no className exists, return insertion point
-    const tagNameMatch = tagContent.match(/<(\w+)/);
+    // const tagNameMatch = tagContent.match(/<(\w+)/); // ALREADY DEFINED ABOVE
     if (tagNameMatch) {
         const insertPos = foundStart + tagNameMatch[0].length;
         return {
