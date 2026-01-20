@@ -556,6 +556,7 @@ function injectDesignModeScript(html: string): string {
       el.style.setProperty(kebabProp, styles[p], "important");
     }
     console.log("[VibeSDK] applyPreview complete, element styles:", el.style.cssText);
+    if (el === selectedElement) updateSelectionOverlay();
   }
   
   function clearPreview() {
@@ -567,6 +568,7 @@ function injectDesignModeScript(html: string): string {
         el.style.setProperty(kebabProp, el.__orig[p]);
       }
       delete el.__orig;
+      if (el === selectedElement) updateSelectionOverlay();
     }
   }
   
