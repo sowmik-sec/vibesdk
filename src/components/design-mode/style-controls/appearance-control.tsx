@@ -11,6 +11,7 @@ interface AppearanceControlProps {
     styles: DesignModeComputedStyles;
     tailwindClasses: string[];
     onChange: (property: string, value: string, commit: boolean) => void;
+    onBatchChange?: (changes: Array<{ property: string; value: string }>) => void;
     onPreview: (property: string, value: string) => void;
     onClearPreview: () => void;
 }
@@ -46,6 +47,7 @@ export function AppearanceControl({
     styles,
     tailwindClasses: _tailwindClasses,
     onChange,
+    onBatchChange,
     onPreview,
     onClearPreview,
 }: AppearanceControlProps) {
@@ -68,11 +70,20 @@ export function AppearanceControl({
 
     const handleRadiusChange = useCallback((value: string, commit: boolean) => {
         // Apply to all corners
-        onChange('borderTopLeftRadius', value, commit);
-        onChange('borderTopRightRadius', value, commit);
-        onChange('borderBottomRightRadius', value, commit);
-        onChange('borderBottomLeftRadius', value, commit);
-    }, [onChange]);
+        if (commit && onBatchChange) {
+            onBatchChange([
+                { property: 'borderTopLeftRadius', value },
+                { property: 'borderTopRightRadius', value },
+                { property: 'borderBottomRightRadius', value },
+                { property: 'borderBottomLeftRadius', value },
+            ]);
+        } else {
+            onChange('borderTopLeftRadius', value, commit);
+            onChange('borderTopRightRadius', value, commit);
+            onChange('borderBottomRightRadius', value, commit);
+            onChange('borderBottomLeftRadius', value, commit);
+        }
+    }, [onChange, onBatchChange]);
 
     const handleRadiusPreview = useCallback((value: string) => {
         onPreview('borderTopLeftRadius', value);
