@@ -411,6 +411,7 @@ function injectDesignModeScript(html: string): string {
   // ========== INLINE TEXT EDITING ==========
   let textEditOverlay = null;
   let isEditingText = false;
+  let originalVisibility = ""; 
   
   // Helper to find the specific text node at coordinates
   function getTextNodeAtPoint(x, y) {
@@ -456,53 +457,86 @@ function injectDesignModeScript(html: string): string {
     let rect = null;
     let contextElement = null; // The element used for ID/Selector generation
 
-    if (targetNode) {
-      // Specific text node clicked - Edit JUST this node
-      textToEdit = targetNode.textContent;
-      const range = document.createRange();
-      range.selectNodeContents(targetNode);
-      rect = range.getBoundingClientRect();
-      contextElement = targetEl; // Selector comes from parent
-    } else {
-      // Element clicked (padding/gap?) - Edit whole element IF simple
-      // We block editing complex elements (with children) to avoid destroying structure
-      // unless it's just text
-      if (targetEl.children.length > 0) {
-        console.log("[VibeSDK] Ignoring complex element edit (no text node matched)");
+     // Element clicked - Edit whole element IF simple
+     // We block editing complex elements (with children) to avoid destroying structure
+     // unless it's just text
+     if (targetEl.children.length > 0) {
+        // Try to find if there is a single text node child validation could go here
+        console.log("[VibeSDK] Ignoring complex element edit (has children)");
         return; 
-      }
-      textToEdit = targetEl.textContent || "";
-      rect = targetEl.getBoundingClientRect();
-      contextElement = targetEl;
-    }
+     }
+      
+    textToEdit = targetEl.textContent || "";
+    rect = targetEl.getBoundingClientRect();
+    contextElement = targetEl;
     
-    if (!textToEdit.trim() && !targetNode) return; // Nothing to edit
+    // Allow editing empty elements too? For now require some text or be explicit
+    // if (!textToEdit.trim()) return;
 
     console.log("[VibeSDK] Editing text:", textToEdit.substring(0, 30));
     
     // Create text edit overlay
     isEditingText = true;
     
-    // Create overlay input
-    textEditOverlay = document.createElement("div");
-    textEditOverlay.id = "__vibesdk_text_edit";
-    textEditOverlay.style.cssText = "position:fixed;left:" + (rect.left - 4) + "px;top:" + (rect.top - 4) + "px;min-width:" + Math.max(rect.width + 8, 100) + "px;min-height:" + (rect.height + 8) + "px;z-index:1000001;background:white;border:2px solid #3b82f6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);padding:0;margin:0;";
+    // Hide original element
+    originalVisibility = targetEl.style.visibility;
+    targetEl.style.visibility = "hidden";
+
+    // Create overlay div
+    const overlay = document.createElement("div");
+    textEditOverlay = overlay;
+    overlay.id = "__vibesdk_text_edit";
+    overlay.contentEditable = "true";
     
-    const input = document.createElement("textarea");
-    input.value = textToEdit;
-    const cs = getComputedStyle(contextElement);
-    input.style.cssText = "width:100%;height:100%;min-height:" + rect.height + "px;border:none;outline:none;resize:both;font-family:" + cs.fontFamily + ";font-size:" + cs.fontSize + ";font-weight:" + cs.fontWeight + ";line-height:" + cs.lineHeight + ";color:black;padding:4px 6px;margin:0;box-sizing:border-box;";
-    textEditOverlay.appendChild(input);
-    document.body.appendChild(textEditOverlay);
+    // Copy styles
+    const cs = getComputedStyle(targetEl);
+    
+    // Use string concatenation to avoid nested template literal issues in the injected script
+    overlay.style.cssText = 
+        "position: fixed;" +
+        "left:" + rect.left + "px;" +
+        "top:" + rect.top + "px;" +
+        "min-width:" + rect.width + "px;" +
+        "min-height:" + rect.height + "px;" +
+        "z-index: 1000001;" +
+        "background: transparent;" +
+        "outline: 2px solid #3b82f6;" +
+        "border: none;" +
+        "padding:" + cs.padding + ";" +
+        "margin: 0;" +
+        
+        "font-family:" + cs.fontFamily + ";" +
+        "font-size:" + cs.fontSize + ";" +
+        "font-weight:" + cs.fontWeight + ";" +
+        "font-style:" + cs.fontStyle + ";" +
+        "line-height:" + cs.lineHeight + ";" +
+        "letter-spacing:" + cs.letterSpacing + ";" +
+        "text-align:" + cs.textAlign + ";" +
+        "text-transform:" + cs.textTransform + ";" +
+        "text-decoration:" + cs.textDecoration + ";" +
+        "color:" + cs.color + ";" +
+        
+        "white-space: pre-wrap;" +
+        "box-sizing: border-box;" +
+        "overflow: hidden;";
+    
+    overlay.textContent = textToEdit;
+    
+    document.body.appendChild(overlay);
     
     // Focus and select all
-    input.focus();
-    input.select();
+    overlay.focus();
+    
+    // Select all text
+    const range = document.createRange();
+    range.selectNodeContents(overlay);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
     
     // Store context for commit
     const context = {
-      targetNode: targetNode,
-      targetEl: targetEl, // fallback if node isn't set
+      targetEl: targetEl,
       originalText: textToEdit,
       selector: genSelector(contextElement),
       sourceLocation: null
@@ -514,7 +548,7 @@ function injectDesignModeScript(html: string): string {
         const stack = await getStack(contextElement);
         if (stack && stack.length > 0 && stack[0].source) {
           let filePath = stack[0].source.fileName || "";
-          const match = filePath.match(/\\/(?:workspace\\/[^\\/]+|app)\\/(.+)/);
+          const match = filePath.match(/\/(?:workspace\/[^\/]+|app)\/(.+)/);
           if (match) filePath = match[1];
           context.sourceLocation = { 
             filePath, 
@@ -525,17 +559,23 @@ function injectDesignModeScript(html: string): string {
     }
     
     function commitEdit() {
-      const newText = input.value;
+      if (!isEditingText) return; // Already cleaned up
+      const newText = overlay.textContent; // use textContent for contentEditable
+      
       cleanup();
       
       if (newText !== context.originalText) {
         // Update DOM immediately
-        if (context.targetNode) {
-            context.targetNode.textContent = newText;
-        } else {
-            context.targetEl.textContent = newText;
-        }
+        context.targetEl.textContent = newText;
         
+        // FORCE overlay update immediately after text change
+        // We need to wait a tick for layout to update size
+        requestAnimationFrame(() => {
+           if (selectedElement === context.targetEl) {
+               updateSelectionOverlay();
+           }
+        });
+
         // Send to parent for code update
         console.log("[VibeSDK] Committing text edit:", { old: context.originalText, new: newText });
         window.parent.postMessage({
@@ -555,6 +595,11 @@ function injectDesignModeScript(html: string): string {
     }
     
     function cleanup() {
+      // Restore visibility
+      if (context.targetEl) {
+          context.targetEl.style.visibility = originalVisibility;
+      }
+      
       if (textEditOverlay) {
         textEditOverlay.remove();
         textEditOverlay = null;
@@ -562,7 +607,7 @@ function injectDesignModeScript(html: string): string {
       isEditingText = false;
     }
     
-    input.addEventListener("keydown", function(ke) {
+    overlay.addEventListener("keydown", function(ke) {
       if (ke.key === "Enter" && !ke.shiftKey) {
         ke.preventDefault();
         commitEdit();
@@ -572,7 +617,7 @@ function injectDesignModeScript(html: string): string {
       }
     });
     
-    input.addEventListener("blur", function() {
+    overlay.addEventListener("blur", function() {
       // Small delay to allow Escape to cancel first
       setTimeout(() => { if (isEditingText) commitEdit(); }, 100);
     });
