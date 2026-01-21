@@ -3,11 +3,14 @@
 		"tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
 		"target": "ES2022",
 		"useDefineForClassFields": true,
-		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"lib": [
+			"ES2022",
+			"DOM",
+			"DOM.Iterable"
+		],
 		"module": "ESNext",
 		"skipLibCheck": true,
 		// "types": ["./worker-configuration.d.ts", "vite/client", "jest"],
-
 		/* Bundler mode */
 		"moduleResolution": "bundler",
 		"allowImportingTsExtensions": true,
@@ -16,7 +19,6 @@
 		"moduleDetection": "force",
 		"noEmit": true,
 		"jsx": "react-jsx",
-
 		/* Linting */
 		"strict": true,
 		"noUnusedLocals": true,
@@ -25,16 +27,25 @@
 		"noUncheckedSideEffectImports": true,
 		"baseUrl": ".",
 		"paths": {
-		  "@/*": [
-			"./src/*"
-		  ],
-          "shared/*": [
-            "./shared/*"
-          ],
-          "worker/*": [
-            "./worker/*"
-          ]
+			"@/*": [
+				"./src/*"
+			],
+			"shared/*": [
+				"./shared/*"
+			],
+			"worker/*": [
+				"./worker/*"
+			],
+			"@vibesdk/design-mode-client": [
+				"./packages/@vibesdk/design-mode-client/src/index.ts"
+			],
+			"@vibesdk/design-mode-client/embedded": [
+				"./packages/@vibesdk/design-mode-client/dist/embedded.d.ts"
+			]
 		}
 	},
-	"include": ["src", "shared"],
+	"include": [
+		"src",
+		"shared"
+	],
 }

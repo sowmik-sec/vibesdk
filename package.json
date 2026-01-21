@@ -3,6 +3,9 @@
 	"private": true,
 	"version": "1.4.0",
 	"type": "module",
+	"workspaces": [
+		"packages/*/@vibesdk/*"
+	],
 	"scripts": {
 		"setup": "tsx scripts/setup.ts",
 		"prepare": "husky",

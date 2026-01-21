@@ -10,7 +10,7 @@ import tailwindcss from '@tailwindcss/vite';
 // https://vite.dev/config/
 export default defineConfig({
 	optimizeDeps: {
-		exclude: ['format', 'editor.all'],
+		exclude: ['format', 'editor.all', '@vibesdk/design-mode-client'],
 		include: ['monaco-editor/esm/vs/editor/editor.api'],
 		force: true,
 	},
@@ -43,6 +43,7 @@ export default defineConfig({
 			'@': path.resolve(__dirname, './src'),
 			'shared': path.resolve(__dirname, './shared'),
 			'worker': path.resolve(__dirname, './worker'),
+			'@vibesdk/design-mode-client': path.resolve(__dirname, './packages/@vibesdk/design-mode-client/dist'),
 		},
 	},
 
