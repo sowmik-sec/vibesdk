@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, forwardRef, useCallback } from 'react';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { WebSocket } from 'partysocket';
-import { getDesignModeClientScript } from '@/lib/design-mode/design-mode-client-inline';
+import { getClientScript } from '@vibesdk/design-mode-client/embedded';
 
 interface PreviewIframeProps {
 	src: string;
@@ -67,7 +67,7 @@ export const PreviewIframe = forwardRef<HTMLIFrameElement, PreviewIframeProps>(
 					console.log('[PreviewIframe] contentDocument access:', { hasDoc: !!doc });
 
 					if (doc && !doc.getElementById('vibesdk-design-mode-script')) {
-						const scriptContent = getDesignModeClientScript();
+						const scriptContent = getClientScript();
 						console.log('[PreviewIframe] Injecting script, length:', scriptContent.length);
 
 						const script = doc.createElement('script');

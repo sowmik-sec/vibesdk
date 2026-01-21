@@ -21,7 +21,7 @@ import {
     X,
     Cloudy,
 } from 'lucide-react';
-import type { DesignModeElementData } from '@/lib/design-mode/design-mode-protocol';
+import type { DesignModeElementData } from '@vibesdk/design-mode-client';
 
 import { TypographyControl } from './style-controls/typography-control';
 import { ColorControl } from './style-controls/color-control';

@@ -9,8 +9,8 @@ import type {
     DesignModeElementData,
     DesignModeIframeMessage,
     DesignModeStyleChange,
-} from '@/lib/design-mode/design-mode-protocol';
-import { DESIGN_MODE_MESSAGE_PREFIX } from '@/lib/design-mode/design-mode-protocol';
+} from '@vibesdk/design-mode-client';
+import { DESIGN_MODE_MESSAGE_PREFIX } from '@vibesdk/design-mode-client';
 
 // ============================================================================
 // Types

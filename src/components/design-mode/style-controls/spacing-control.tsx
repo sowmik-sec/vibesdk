@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useState, useMemo } from 'react';
-import type { DesignModeComputedStyles } from '@/lib/design-mode/design-mode-protocol';
+import type { DesignModeComputedStyles } from '@vibesdk/design-mode-client';
 
 interface SpacingControlProps {
     styles: DesignModeComputedStyles;

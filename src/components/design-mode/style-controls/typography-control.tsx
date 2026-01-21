@@ -14,7 +14,7 @@ import {
     Strikethrough,
     Underline,
 } from 'lucide-react';
-import type { DesignModeComputedStyles } from '@/lib/design-mode/design-mode-protocol';
+import type { DesignModeComputedStyles } from '@vibesdk/design-mode-client';
 import { DropdownControl, type DropdownOption } from './dropdown-control';
 import { ToggleButtonGroup, type ToggleOption } from './toggle-button-group';
 
