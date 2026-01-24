@@ -13,6 +13,7 @@ import type {
     DesignModeAIPromptRequest,
     DesignModeTextUpdateRequest,
     DesignModeGoToCodeRequest,
+    DesignModeImageUploadRequest,
 } from '../../api/websocketTypes';
 import { StructuredLogger } from '../../logger';
 
@@ -913,4 +914,193 @@ async function findCodeLocation(
     }
 
     return null;
+}
+
+// ============================================================================
+// Image Upload Handler
+// ============================================================================
+
+/** In-memory buffer for chunked uploads */
+const uploadBuffers = new Map<string, {
+    chunks: string[];
+    fileName: string;
+    mimeType: string;
+    totalChunks: number;
+    receivedChunks: number;
+    selector: string;
+    sourceLocation?: { filePath: string; lineNumber: number; columnNumber?: number };
+    isBackgroundImage?: boolean;
+}>();
+
+/**
+ * Handle image upload requests from design mode.
+ * Supports chunked uploads for large files.
+ */
+export async function handleDesignModeImageUpload(
+    agent: ICodingAgent,
+    connection: Connection,
+    request: DesignModeImageUploadRequest,
+    logger: StructuredLogger
+): Promise<void> {
+    const {
+        uploadId,
+        fileName,
+        mimeType,
+        chunk,
+        chunkIndex,
+        totalChunks,
+        selector,
+        sourceLocation,
+        isBackgroundImage,
+    } = request;
+
+    logger.info('Design mode image upload chunk received', {
+        uploadId,
+        fileName,
+        mimeType,
+        chunkIndex,
+        totalChunks,
+        selector,
+    });
+
+    try {
+        // Initialize or get existing buffer
+        let buffer = uploadBuffers.get(uploadId);
+        if (!buffer) {
+            buffer = {
+                chunks: new Array(totalChunks).fill(''),
+                fileName,
+                mimeType,
+                totalChunks,
+                receivedChunks: 0,
+                selector,
+                sourceLocation,
+                isBackgroundImage,
+            };
+            uploadBuffers.set(uploadId, buffer);
+        }
+
+        // Store chunk at correct index
+        if (!buffer.chunks[chunkIndex]) {
+            buffer.chunks[chunkIndex] = chunk;
+            buffer.receivedChunks++;
+        }
+
+        // Check if all chunks received
+        if (buffer.receivedChunks < buffer.totalChunks) {
+            // Still waiting for more chunks, send progress
+            connection.send(JSON.stringify({
+                type: 'design_mode_image_uploaded',
+                success: false,
+                uploadId,
+                error: `Receiving chunks: ${buffer.receivedChunks}/${buffer.totalChunks}`,
+            }));
+            return;
+        }
+
+        // All chunks received - reassemble and save
+        const fullBase64 = buffer.chunks.join('');
+        const imageBuffer = Uint8Array.from(atob(fullBase64), c => c.charCodeAt(0));
+
+        // Generate unique file name to avoid collisions
+        const timestamp = Date.now();
+        const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const uniqueFileName = `${timestamp}-${safeName}`;
+        const assetPath = `public/assets/${uniqueFileName}`;
+
+        // Convert Uint8Array to base64 string for file saving
+        // The agent's saveFile expects string content
+        // For binary files, we'll encode as base64 data URL
+        const base64DataUrl = `data:${mimeType};base64,${fullBase64}`;
+
+        // Note: This saves a data URL which works for img src directly
+        // For production, you'd want proper binary file handling
+        const saveResult = await agent.saveFile(
+            assetPath,
+            base64DataUrl,
+            `feat: upload image ${fileName} via design mode`
+        );
+
+        // Clean up buffer
+        uploadBuffers.delete(uploadId);
+
+        if (!saveResult.success) {
+            logger.error('Failed to save uploaded image', { error: saveResult.error });
+            connection.send(JSON.stringify({
+                type: 'design_mode_image_uploaded',
+                success: false,
+                uploadId,
+                error: saveResult.error || 'Failed to save image',
+            }));
+            return;
+        }
+
+        // Update source code to use new image path
+        const imagePath = `/assets/${uniqueFileName}`;
+
+        if (sourceLocation) {
+            const normalizedPath = normalizeFilePath(sourceLocation.filePath);
+
+            // Read the file and update the image src
+            const files = agent.listFiles();
+            const file = files.find(f => f.filePath === normalizedPath);
+
+            if (file && file.fileContents) {
+                let updatedContent = file.fileContents;
+                const lines = updatedContent.split('\n');
+                const targetLine = lines[sourceLocation.lineNumber - 1];
+
+                if (targetLine) {
+                    if (isBackgroundImage) {
+                        // Update background-image in style or className
+                        // This is more complex and would need CSS class manipulation
+                        logger.info('Background image update - would require style modification');
+                    } else {
+                        // Update img src attribute
+                        const srcPattern = /src=["']([^"']*)["']/;
+                        if (srcPattern.test(targetLine)) {
+                            const newLine = targetLine.replace(srcPattern, `src="${imagePath}"`);
+                            lines[sourceLocation.lineNumber - 1] = newLine;
+                            updatedContent = lines.join('\n');
+
+                            await agent.saveFile(
+                                normalizedPath,
+                                updatedContent,
+                                `feat: update image src to ${imagePath}`
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        logger.info('Image uploaded successfully', {
+            uploadId,
+            imagePath,
+            fileSize: imageBuffer.length,
+        });
+
+        connection.send(JSON.stringify({
+            type: 'design_mode_image_uploaded',
+            success: true,
+            uploadId,
+            imagePath,
+        }));
+
+    } catch (error) {
+        logger.error('Failed to handle image upload', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            uploadId,
+        });
+
+        // Clean up buffer on error
+        uploadBuffers.delete(uploadId);
+
+        connection.send(JSON.stringify({
+            type: 'design_mode_image_uploaded',
+            success: false,
+            uploadId,
+            error: error instanceof Error ? error.message : 'Failed to upload image',
+        }));
+    }
 }

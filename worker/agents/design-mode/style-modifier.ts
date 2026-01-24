@@ -486,6 +486,142 @@ function cssToTailwind(property: string, value: string): { class: string; prefix
             return { class: `font-[${value.split(',')[0].trim().replace(/['"]/g, '')}]`, prefix: 'font' };
         }
 
+        // Width
+        case 'width': {
+            const prefix = 'w';
+
+            // Handle keywords
+            if (normalizedValue === 'auto') return { class: 'w-auto', prefix };
+            if (normalizedValue === '100%') return { class: 'w-full', prefix };
+            if (normalizedValue === '100vw' || normalizedValue === 'screen') return { class: 'w-screen', prefix };
+            if (normalizedValue === 'min-content') return { class: 'w-min', prefix };
+            if (normalizedValue === 'max-content') return { class: 'w-max', prefix };
+            if (normalizedValue === 'fit-content') return { class: 'w-fit', prefix };
+
+            // Handle fractions
+            if (normalizedValue.includes('/')) {
+                return { class: `w-${normalizedValue}`, prefix };
+            }
+            if (normalizedValue.endsWith('%')) {
+                // Try to map common percentages to fractions
+                const num = parseFloat(normalizedValue);
+                if (Math.abs(num - 50) < 0.1) return { class: 'w-1/2', prefix };
+                if (Math.abs(num - 33.33) < 0.1) return { class: 'w-1/3', prefix };
+                if (Math.abs(num - 66.66) < 0.1) return { class: 'w-2/3', prefix };
+                if (Math.abs(num - 25) < 0.1) return { class: 'w-1/4', prefix };
+                if (Math.abs(num - 75) < 0.1) return { class: 'w-3/4', prefix };
+                if (Math.abs(num - 20) < 0.1) return { class: 'w-1/5', prefix };
+                if (Math.abs(num - 40) < 0.1) return { class: 'w-2/5', prefix };
+                if (Math.abs(num - 60) < 0.1) return { class: 'w-3/5', prefix };
+                if (Math.abs(num - 80) < 0.1) return { class: 'w-4/5', prefix };
+                if (Math.abs(num - 16.66) < 0.1) return { class: 'w-1/6', prefix };
+                if (Math.abs(num - 83.33) < 0.1) return { class: 'w-5/6', prefix };
+
+                // Fallback to arbitrary
+                return { class: `w-[${value}]`, prefix };
+            }
+
+            // Handle spacing (px)
+            const spacing = TAILWIND_SPACING[normalizedValue];
+            if (spacing) {
+                return { class: `w-${spacing}`, prefix };
+            }
+
+            // Extra spacing values for width/height that might be missing in standard spacing
+            const extendedSpacing: Record<string, string> = {
+                '56px': '14',
+                '64px': '16',
+                '80px': '20',
+                '96px': '24',
+                '112px': '28',
+                '128px': '32',
+                '144px': '36',
+                '160px': '40',
+                '176px': '44',
+                '192px': '48',
+                '208px': '52',
+                '224px': '56',
+                '240px': '60',
+                '256px': '64',
+                '288px': '72',
+                '320px': '80',
+                '384px': '96',
+            };
+
+            if (extendedSpacing[normalizedValue]) {
+                return { class: `w-${extendedSpacing[normalizedValue]}`, prefix };
+            }
+
+            return { class: `w-[${value}]`, prefix };
+        }
+
+        // Height
+        case 'height': {
+            const prefix = 'h';
+
+            // Handle keywords
+            if (normalizedValue === 'auto') return { class: 'h-auto', prefix };
+            if (normalizedValue === '100%') return { class: 'h-full', prefix };
+            if (normalizedValue === '100vh' || normalizedValue === 'screen') return { class: 'h-screen', prefix };
+            if (normalizedValue === 'min-content') return { class: 'h-min', prefix };
+            if (normalizedValue === 'max-content') return { class: 'h-max', prefix };
+            if (normalizedValue === 'fit-content') return { class: 'h-fit', prefix };
+
+            // Handle fractions
+            if (normalizedValue.includes('/')) {
+                return { class: `h-${normalizedValue}`, prefix };
+            }
+            if (normalizedValue.endsWith('%')) {
+                const num = parseFloat(normalizedValue);
+                if (Math.abs(num - 50) < 0.1) return { class: 'h-1/2', prefix };
+                if (Math.abs(num - 33.33) < 0.1) return { class: 'h-1/3', prefix };
+                if (Math.abs(num - 66.66) < 0.1) return { class: 'h-2/3', prefix };
+                if (Math.abs(num - 25) < 0.1) return { class: 'h-1/4', prefix };
+                if (Math.abs(num - 75) < 0.1) return { class: 'h-3/4', prefix };
+                if (Math.abs(num - 20) < 0.1) return { class: 'h-1/5', prefix };
+                if (Math.abs(num - 40) < 0.1) return { class: 'h-2/5', prefix };
+                if (Math.abs(num - 60) < 0.1) return { class: 'h-3/5', prefix };
+                if (Math.abs(num - 80) < 0.1) return { class: 'h-4/5', prefix };
+                if (Math.abs(num - 16.66) < 0.1) return { class: 'h-1/6', prefix };
+                if (Math.abs(num - 83.33) < 0.1) return { class: 'h-5/6', prefix };
+
+                return { class: `h-[${value}]`, prefix };
+            }
+
+            // Handle spacing (px)
+            const spacing = TAILWIND_SPACING[normalizedValue];
+            if (spacing) {
+                return { class: `h-${spacing}`, prefix };
+            }
+
+            // Extra spacing values
+            const extendedSpacing: Record<string, string> = {
+                '56px': '14',
+                '64px': '16',
+                '80px': '20',
+                '96px': '24',
+                '112px': '28',
+                '128px': '32',
+                '144px': '36',
+                '160px': '40',
+                '176px': '44',
+                '192px': '48',
+                '208px': '52',
+                '224px': '56',
+                '240px': '60',
+                '256px': '64',
+                '288px': '72',
+                '320px': '80',
+                '384px': '96',
+            };
+
+            if (extendedSpacing[normalizedValue]) {
+                return { class: `h-${extendedSpacing[normalizedValue]}`, prefix };
+            }
+
+            return { class: `h-[${value}]`, prefix };
+        }
+
         default:
             return null;
     }
@@ -588,6 +724,14 @@ function getExistingClassPattern(prefix: string): RegExp {
         // Box shadow
         case 'shadow':
             return safeMatch('shadow(?:-none|-sm|-md|-lg|-xl|-2xl|-inner)?');
+
+        // Width
+        case 'w':
+            return safeMatch('w-(?:auto|full|screen|min|max|fit|\\d+\\.?\\d*|\\d+\\/\\d+|\\[.+?\\])');
+
+        // Height
+        case 'h':
+            return safeMatch('h-(?:auto|full|screen|min|max|fit|\\d+\\.?\\d*|\\d+\\/\\d+|\\[.+?\\])');
 
         default:
             return safeMatch(`${prefix}-[\\w\\[\\].]+`);

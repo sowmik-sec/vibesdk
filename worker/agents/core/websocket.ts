@@ -328,6 +328,27 @@ export function handleWebSocketMessage(
                     error: 'Undo/redo not yet implemented'
                 });
                 break;
+            case WebSocketMessageRequests.DESIGN_MODE_IMAGE_UPLOAD:
+                // Handle design mode image upload
+                logger.info('Received design mode image upload', {
+                    uploadId: parsedMessage.uploadId,
+                    fileName: parsedMessage.fileName,
+                    chunkIndex: parsedMessage.chunkIndex,
+                    totalChunks: parsedMessage.totalChunks,
+                });
+
+                import('../design-mode/design-mode-handler').then(({ handleDesignModeImageUpload }) => {
+                    handleDesignModeImageUpload(
+                        agent.getBehavior(),
+                        connection as any,
+                        parsedMessage,
+                        logger
+                    ).catch((error: unknown) => {
+                        logger.error('Error handling design mode image upload:', error);
+                        sendError(connection, `Error uploading image: ${error instanceof Error ? error.message : String(error)}`);
+                    });
+                });
+                break;
             default:
                 sendError(connection, `Unknown message type: ${parsedMessage.type}`);
         }
