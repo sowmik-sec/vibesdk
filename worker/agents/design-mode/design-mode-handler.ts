@@ -998,94 +998,133 @@ export async function handleDesignModeImageUpload(
             return;
         }
 
-        // All chunks received - reassemble and save
+        // All chunks received - reassemble
         const fullBase64 = buffer.chunks.join('');
-        const imageBuffer = Uint8Array.from(atob(fullBase64), c => c.charCodeAt(0));
-
-        // Generate unique file name to avoid collisions
-        const timestamp = Date.now();
-        const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-        const uniqueFileName = `${timestamp}-${safeName}`;
-        const assetPath = `public/assets/${uniqueFileName}`;
-
-        // Convert Uint8Array to base64 string for file saving
-        // The agent's saveFile expects string content
-        // For binary files, we'll encode as base64 data URL
-        const base64DataUrl = `data:${mimeType};base64,${fullBase64}`;
-
-        // Note: This saves a data URL which works for img src directly
-        // For production, you'd want proper binary file handling
-        const saveResult = await agent.saveFile(
-            assetPath,
-            base64DataUrl,
-            `feat: upload image ${fileName} via design mode`
-        );
 
         // Clean up buffer
         uploadBuffers.delete(uploadId);
 
-        if (!saveResult.success) {
-            logger.error('Failed to save uploaded image', { error: saveResult.error });
-            connection.send(JSON.stringify({
-                type: 'design_mode_image_uploaded',
-                success: false,
-                uploadId,
-                error: saveResult.error || 'Failed to save image',
-            }));
-            return;
-        }
+        // Convert base64 to buffer
+        const binaryBuffer = Buffer.from(fullBase64, 'base64');
 
-        // Update source code to use new image path
-        const imagePath = `/assets/${uniqueFileName}`;
+        // Generate a filename
+        const timestamp = Date.now();
+        const random = Math.floor(Math.random() * 10000);
+        const extension = mimeType.split('/')[1] || 'png';
+        const newFileName = `image-${timestamp}-${random}.${extension}`;
 
-        if (sourceLocation) {
-            const normalizedPath = normalizeFilePath(sourceLocation.filePath);
+        // Save to public/uploads directory
+        // We write directly to disk to bypass FileManager sqlite limits for binary assets
+        // The directory public/uploads/ is gitignored to preventing syncing issues
+        const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+        const fs = await import('fs/promises');
 
-            // Read the file and update the image src
-            const files = agent.listFiles();
-            const file = files.find(f => f.filePath === normalizedPath);
+        try {
+            // Ensure directory exists
+            try {
+                await fs.access(uploadsDir);
+            } catch {
+                await fs.mkdir(uploadsDir, { recursive: true });
+            }
 
-            if (file && file.fileContents) {
-                let updatedContent = file.fileContents;
-                const lines = updatedContent.split('\n');
-                const targetLine = lines[sourceLocation.lineNumber - 1];
+            // Write file
+            const filePath = path.join(uploadsDir, newFileName);
+            await fs.writeFile(filePath, binaryBuffer);
 
-                if (targetLine) {
-                    if (isBackgroundImage) {
-                        // Update background-image in style or className
-                        // This is more complex and would need CSS class manipulation
-                        logger.info('Background image update - would require style modification');
-                    } else {
-                        // Update img src attribute
-                        const srcPattern = /src=["']([^"']*)["']/;
-                        if (srcPattern.test(targetLine)) {
-                            const newLine = targetLine.replace(srcPattern, `src="${imagePath}"`);
-                            lines[sourceLocation.lineNumber - 1] = newLine;
-                            updatedContent = lines.join('\n');
+            // URL reference to the file
+            const imageUrl = `/uploads/${newFileName}`;
 
-                            await agent.saveFile(
-                                normalizedPath,
-                                updatedContent,
-                                `feat: update image src to ${imagePath}`
-                            );
+            if (sourceLocation) {
+                const normalizedPath = normalizeFilePath(sourceLocation.filePath);
+
+                // Read the file and update the image src with the URL
+                const files = agent.listFiles();
+                const file = files.find(f => f.filePath === normalizedPath);
+
+                if (file && file.fileContents) {
+                    const lines = file.fileContents.split('\n');
+                    const targetLine = lines[sourceLocation.lineNumber - 1];
+
+                    if (targetLine) {
+                        if (isBackgroundImage) {
+                            // Background image logic would go here
+                            logger.info('Background image update - not implemented for upload');
+                        } else {
+                            // Update img src attribute with the URL
+                            const srcPattern = /src=["']([^"']*)["']/;
+                            // Also handle JSX-style src={...} - but replace with string literal
+                            const jsxSrcPattern = /src=\{["']([^"']*)["']\}/;
+                            const jsxVarPattern = /src=\{([^"'}]+)\}/;
+
+                            let newLine = targetLine;
+                            let replaced = false;
+
+                            if (srcPattern.test(targetLine)) {
+                                newLine = targetLine.replace(srcPattern, `src="${imageUrl}"`);
+                                replaced = true;
+                            } else if (jsxSrcPattern.test(targetLine)) {
+                                newLine = targetLine.replace(jsxSrcPattern, `src="${imageUrl}"`);
+                                replaced = true;
+                            } else if (jsxVarPattern.test(targetLine)) {
+                                // Replacing a variable src={myImage} with a string literal src="/path..."
+                                newLine = targetLine.replace(jsxVarPattern, `src="${imageUrl}"`);
+                                replaced = true;
+                            }
+
+                            if (replaced) {
+                                lines[sourceLocation.lineNumber - 1] = newLine;
+                                const updatedContent = lines.join('\n');
+
+                                await agent.saveFile(
+                                    normalizedPath,
+                                    updatedContent,
+                                    `feat: upload image to ${newFileName}`
+                                );
+
+                                // Also trigger a sandbox deploy to ensure the new HTML/JS is served 
+                                // (The asset is served via static file server, but the code needs update)
+                                const deployToSandbox = (agent as any).deployToSandbox;
+                                if (deployToSandbox) {
+                                    await deployToSandbox(
+                                        [{
+                                            filePath: normalizedPath,
+                                            fileContents: updatedContent,
+                                            filePurpose: file.filePurpose
+                                        }],
+                                        false,
+                                        'image upload',
+                                        false,
+                                        undefined,
+                                        true // optimistic
+                                    );
+                                }
+                            } else {
+                                logger.warn('Could not find src attribute pattern in target line', {
+                                    targetLine: targetLine.substring(0, 100)
+                                });
+                            }
                         }
                     }
                 }
             }
+
+            logger.info('Image uploaded successfully', {
+                uploadId,
+                imagePath: imageUrl,
+                fileSize: binaryBuffer.length,
+            });
+
+            connection.send(JSON.stringify({
+                type: 'design_mode_image_uploaded',
+                success: true,
+                uploadId,
+                imagePath: imageUrl,
+            }));
+
+        } catch (fsError) {
+            logger.error('Failed to write image file', { error: fsError });
+            throw fsError;
         }
-
-        logger.info('Image uploaded successfully', {
-            uploadId,
-            imagePath,
-            fileSize: imageBuffer.length,
-        });
-
-        connection.send(JSON.stringify({
-            type: 'design_mode_image_uploaded',
-            success: true,
-            uploadId,
-            imagePath,
-        }));
 
     } catch (error) {
         logger.error('Failed to handle image upload', {

@@ -12,7 +12,12 @@ dist
 !agent-extraction/dist
  dist-ssr
  .tmp
+
 *.tsbuildinfo
+
+# User uploads - handled by filesystem directly, ignored by FileManager/DB
+public/uploads/
+
 
 *.local
 

@@ -11,6 +11,7 @@ import type {
     DesignModeStyleChange,
 } from '@vibesdk/design-mode-client';
 import { DESIGN_MODE_MESSAGE_PREFIX } from '@vibesdk/design-mode-client';
+import { chunkFile } from '@/components/design-mode/style-controls/image-control';
 
 // ============================================================================
 // Types
@@ -84,6 +85,12 @@ export interface UseDesignModeReturn {
     hasPendingChanges: boolean;
     /** Manually trigger a preview refresh (deploys pending changes) */
     refreshPreview: () => Promise<void>;
+    /** Upload an image for the selected element */
+    uploadImage: (file: File, isBackground: boolean) => Promise<void>;
+    /** Whether an image upload is in progress */
+    isUploadingImage: boolean;
+    /** Image upload progress (0-100) */
+    imageUploadProgress: number;
 }
 
 // ============================================================================
@@ -100,6 +107,8 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncError, setSyncError] = useState<string | null>(null);
     const [hasPendingChanges, setHasPendingChanges] = useState(false);
+    const [isUploadingImage, setIsUploadingImage] = useState(false);
+    const [imageUploadProgress, setImageUploadProgress] = useState(0);
 
     // History for undo/redo
     const [history, setHistory] = useState<DesignModeHistoryEntry[]>([]);
@@ -653,6 +662,95 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
     }, [websocket]);
 
     // ========================================================================
+    // Image Upload
+    // ========================================================================
+
+    const uploadImage = useCallback(async (file: File, isBackground: boolean) => {
+        if (!selectedElement || !websocket) return;
+
+        setIsUploadingImage(true);
+        setImageUploadProgress(0);
+        setSyncError(null);
+
+        try {
+            const uploadId = crypto.randomUUID();
+            const fileName = file.name;
+            const mimeType = file.type;
+            const fileSize = file.size;
+
+            for await (const { chunk, index, total } of chunkFile(file)) {
+                websocket.send(JSON.stringify({
+                    type: 'design_mode_image_upload',
+                    uploadId,
+                    chunk,
+                    chunkIndex: index,
+                    totalChunks: total,
+                    fileName,
+                    mimeType,
+                    fileSize,
+                    isBackground,
+                    elementContext: {
+                        selector: selectedElement.selector,
+                        filePath: selectedElement.sourceLocation?.filePath,
+                        lineNumber: selectedElement.sourceLocation?.lineNumber,
+                    }
+                }));
+
+                // Update progress
+                setImageUploadProgress(Math.round(((index + 1) / total) * 100));
+            }
+
+            // Loading state will be reset when we receive the design_mode_image_uploaded response
+            console.log('[useDesignMode] All image chunks sent, waiting for server confirmation...');
+
+        } catch (error) {
+            console.error('[useDesignMode] Image upload failed:', error);
+            setSyncError(error instanceof Error ? error.message : 'Image upload failed');
+            setIsUploadingImage(false);
+        }
+    }, [selectedElement, websocket]);
+
+    // Listen for WebSocket messages (like image upload confirmation)
+    useEffect(() => {
+        if (!websocket) return;
+
+        const handleWebSocketMessage = (event: MessageEvent) => {
+            try {
+                const message = JSON.parse(event.data);
+
+                if (message.type === 'design_mode_image_uploaded') {
+                    console.log('[useDesignMode] Image upload response received:', message);
+
+                    if (message.success) {
+                        console.log('[useDesignMode] Image uploaded successfully, refreshing preview...');
+                        // Trigger a preview refresh to show the new image
+                        // Send message to backend to trigger a fresh deploy
+                        websocket.send(JSON.stringify({
+                            type: 'design_mode_refresh_preview',
+                        }));
+                        setHasPendingChanges(false);
+                        committedStylesRef.current.clear();
+                    } else {
+                        console.error('[useDesignMode] Image upload failed:', message.error);
+                        setSyncError(message.error || 'Image upload failed');
+                    }
+
+                    setIsUploadingImage(false);
+                    setImageUploadProgress(0);
+                }
+            } catch {
+                // Not JSON or not our message type
+            }
+        };
+
+        websocket.addEventListener('message', handleWebSocketMessage);
+
+        return () => {
+            websocket.removeEventListener('message', handleWebSocketMessage);
+        };
+    }, [websocket]);
+
+    // ========================================================================
     // Keyboard Shortcuts
     // ========================================================================
 
@@ -725,6 +823,9 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         syncError,
         hasPendingChanges,
         refreshPreview,
+        uploadImage,
+        isUploadingImage,
+        imageUploadProgress,
     }), [
         isEnabled,
         toggleDesignMode,
@@ -750,5 +851,8 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         hasPendingChanges,
         refreshPreview,
         handleTextChange,
+        uploadImage,
+        isUploadingImage,
+        imageUploadProgress,
     ]);
 }

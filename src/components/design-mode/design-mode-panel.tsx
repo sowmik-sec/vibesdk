@@ -198,10 +198,22 @@ function isImageElement(element: DesignModeElementData): boolean {
 }
 
 function getImageSrc(element: DesignModeElementData): string | undefined {
-    // For img tags, we'd need to get src from the DOM
-    // This is passed via inlineStyles or we'd need to extend DesignModeElementData
-    // For now, return undefined and let ImageControl handle fetching
-    return element.inlineStyles?.['background-image'] || undefined;
+    const tagName = element.tagName.toLowerCase();
+
+    // For img tags, get src from attributes
+    if (tagName === 'img') {
+        return element.attributes?.src || element.attributes?.['data-src'];
+    }
+
+    // For background images, extract from inline or computed styles
+    const bgImage = element.inlineStyles?.['background-image'] || element.computedStyles?.backgroundImage;
+    if (bgImage && bgImage !== 'none') {
+        // Extract URL from url(...) format
+        const match = bgImage.match(/url\(['"]?([^'"]+)['"]?\)/);
+        return match ? match[1] : undefined;
+    }
+
+    return undefined;
 }
 
 // ============================================================================

@@ -4,9 +4,9 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
-import { Upload, Image as ImageIcon, RefreshCw, ExternalLink } from 'lucide-react';
+import { Upload, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import type { DesignModeComputedStyles } from '@vibesdk/design-mode-client';
-import { Button } from '@/components/ui/button';
+
 import { cn } from '@/lib/utils';
 
 // Supported image MIME types
@@ -104,51 +104,60 @@ export function ImageControl({
     }, []);
 
     const handleUploadClick = useCallback(() => {
-        fileInputRef.current?.click();
-    }, []);
-
-    // Display URL (truncated for long paths)
-    const displayUrl = currentImageUrl
-        ? currentImageUrl.length > 40
-            ? `...${currentImageUrl.slice(-37)}`
-            : currentImageUrl
-        : 'No image';
+        if (!isUploading) {
+            fileInputRef.current?.click();
+        }
+    }, [isUploading]);
 
     return (
         <div className="space-y-3">
-            {/* Image Preview */}
+            {/* Image Preview / Upload Area */}
             <div
                 className={cn(
-                    "relative w-full aspect-video rounded-lg border-2 border-dashed transition-colors overflow-hidden",
+                    "group relative w-full aspect-video rounded-lg border-2 border-dashed transition-all overflow-hidden cursor-pointer",
                     dragOver
                         ? "border-accent bg-accent/10"
-                        : "border-text/20 bg-bg-3",
-                    isUploading && "opacity-50"
+                        : "border-text/20 bg-bg-3 hover:border-text/40",
+                    isUploading && "opacity-50 cursor-not-allowed"
                 )}
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
+                onClick={handleUploadClick}
             >
+                {/* Transparency Grid Background */}
+                <div className="absolute inset-0 opacity-20" style={{
+                    backgroundImage: `linear-gradient(45deg, #888 25%, transparent 25%), linear-gradient(-45deg, #888 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #888 75%), linear-gradient(-45deg, transparent 75%, #888 75%)`,
+                    backgroundSize: '20px 20px',
+                    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
+                }} />
+
                 {(previewUrl || currentImageUrl) ? (
-                    <img
-                        src={previewUrl || currentImageUrl || ''}
-                        alt="Current"
-                        className="w-full h-full object-contain"
-                        onError={(e) => {
-                            // Fallback for broken images
-                            (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                    />
+                    <>
+                        <img
+                            src={previewUrl || currentImageUrl || ''}
+                            alt="Current"
+                            className="w-full h-full object-contain relative z-10"
+                            onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                        />
+                        {/* Hover Overlay */}
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center z-20 text-white">
+                            <Upload className="size-6 mb-2" />
+                            <span className="text-xs font-medium">Click to upload image</span>
+                        </div>
+                    </>
                 ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-text-primary/40">
                         <ImageIcon className="size-8 mb-2" />
-                        <span className="text-xs">Drop image here</span>
+                        <span className="text-xs">Drop image here or click to upload</span>
                     </div>
                 )}
 
                 {/* Upload progress overlay */}
                 {isUploading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-bg-1/80">
+                    <div className="absolute inset-0 flex items-center justify-center bg-bg-1/80 z-30">
                         <div className="text-center">
                             <RefreshCw className="size-6 animate-spin mx-auto mb-2 text-accent" />
                             <span className="text-xs text-text-primary/70">
@@ -159,35 +168,6 @@ export function ImageControl({
                 )}
             </div>
 
-            {/* Current Source Display */}
-            <div className="flex items-center gap-2 px-2 py-1.5 bg-bg-3 rounded-md">
-                <span className="flex-1 text-xs text-text-primary/60 truncate font-mono">
-                    {displayUrl}
-                </span>
-                {currentImageUrl && (
-                    <a
-                        href={currentImageUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1 hover:bg-bg-2 rounded transition-colors text-text-primary/50 hover:text-text-primary"
-                        title="Open image in new tab"
-                    >
-                        <ExternalLink className="size-3" />
-                    </a>
-                )}
-            </div>
-
-            {/* Upload Button */}
-            <Button
-                onClick={handleUploadClick}
-                disabled={isUploading}
-                variant="outline"
-                className="w-full"
-            >
-                <Upload className="size-4 mr-2" />
-                {isUploading ? 'Uploading...' : 'Upload / Replace'}
-            </Button>
-
             {/* Hidden file input */}
             <input
                 ref={fileInputRef}
@@ -197,10 +177,11 @@ export function ImageControl({
                 className="hidden"
             />
 
-            {/* Supported formats hint */}
-            <p className="text-xs text-text-primary/40 text-center">
-                PNG, JPG, GIF, WebP, SVG
-            </p>
+
+
+            {/* <p className="text-[10px] text-text-primary/30 text-center pt-1">
+                Supported: PNG, JPG, GIF, WebP, SVG
+            </p> */}
         </div>
     );
 }
