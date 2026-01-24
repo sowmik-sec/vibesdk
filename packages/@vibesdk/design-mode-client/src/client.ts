@@ -1022,7 +1022,7 @@ function disableDesignMode(): void {
 function init(): void {
     if (!shouldInitialize()) return;
 
-    // console.log(`[VibeSDK] Design mode client initialized - VERSION: ${SCRIPT_VERSION}`);
+    console.log(`[VibeSDK] Design Mode Client Initializing... Version: ${SCRIPT_VERSION}`);
 
     window.addEventListener('message', handleParentMessage);
     sendMessage({ type: 'design_mode_ready' });
