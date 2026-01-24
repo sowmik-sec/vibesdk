@@ -366,3 +366,42 @@ export const TEXT_EDITABLE_ELEMENTS = [
     'sub',
     'sup',
 ];
+
+// ============================================================================
+// Image Upload Types
+// ============================================================================
+
+/** Request to upload an image in design mode (chunked for large files) */
+export interface DesignModeImageUploadRequest {
+    type: 'design_mode_image_upload';
+    /** Unique identifier for this upload session */
+    uploadId: string;
+    /** Original file name */
+    fileName: string;
+    /** File MIME type (e.g., 'image/png', 'image/jpeg') */
+    mimeType: string;
+    /** Base64-encoded chunk of the file */
+    chunk: string;
+    /** Current chunk index (0-based) */
+    chunkIndex: number;
+    /** Total number of chunks */
+    totalChunks: number;
+    /** Element selector to update after upload */
+    selector: string;
+    /** Source location for precise code updates */
+    sourceLocation?: DesignModeSourceLocation;
+    /** Whether this is for background-image (vs img src) */
+    isBackgroundImage?: boolean;
+}
+
+/** Server response after image upload */
+export interface DesignModeImageUploadResponse {
+    type: 'design_mode_image_uploaded';
+    success: boolean;
+    /** Upload ID that was processed */
+    uploadId: string;
+    /** Relative path to the saved image (e.g., '/assets/uploaded-image.png') */
+    imagePath?: string;
+    /** Error message if upload failed */
+    error?: string;
+}

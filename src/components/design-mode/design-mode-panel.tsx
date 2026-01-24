@@ -20,6 +20,7 @@ import {
     Redo2,
     X,
     Cloudy,
+    Image as ImageIcon,
 } from 'lucide-react';
 import type { DesignModeElementData } from '@vibesdk/design-mode-client';
 
@@ -30,6 +31,7 @@ import { LayoutControl } from './style-controls/layout-control';
 import { BorderControl } from './style-controls/border-control';
 import { AppearanceControl } from './style-controls/appearance-control';
 import { ShadowControl } from './style-controls/shadow-control';
+import { ImageControl } from './style-controls/image-control';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -53,6 +55,12 @@ export interface DesignModePanelProps {
     isSyncing?: boolean;
     hasPendingChanges?: boolean;
     onRefreshPreview?: () => void;
+    /** Callback for image upload */
+    onImageUpload?: (file: File, isBackground: boolean) => void;
+    /** Whether an image upload is in progress */
+    isUploadingImage?: boolean;
+    /** Image upload progress (0-100) */
+    imageUploadProgress?: number;
 }
 
 interface SectionProps {
@@ -171,7 +179,30 @@ function AIPromptInput({ onSubmit, disabled }: { onSubmit: (prompt: string) => v
 // Helper: Check if element is text element
 // ============================================================================
 
+const TEXT_ELEMENT_TYPES: Array<DesignModeElementData['elementType']> = ['text'];
+const TEXT_TAG_NAMES = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'label', 'a', 'strong', 'em', 'b', 'i'];
 
+function isTextElement(element: DesignModeElementData): boolean {
+    if (TEXT_ELEMENT_TYPES.includes(element.elementType)) return true;
+    return TEXT_TAG_NAMES.includes(element.tagName.toLowerCase());
+}
+
+function isImageElement(element: DesignModeElementData): boolean {
+    if (element.elementType === 'image') return true;
+    const tagName = element.tagName.toLowerCase();
+    if (tagName === 'img' || tagName === 'svg') return true;
+    // Check for background-image
+    const bgImage = element.computedStyles?.backgroundImage;
+    if (bgImage && bgImage !== 'none') return true;
+    return false;
+}
+
+function getImageSrc(element: DesignModeElementData): string | undefined {
+    // For img tags, we'd need to get src from the DOM
+    // This is passed via inlineStyles or we'd need to extend DesignModeElementData
+    // For now, return undefined and let ImageControl handle fetching
+    return element.inlineStyles?.['background-image'] || undefined;
+}
 
 // ============================================================================
 // Main Panel Component
@@ -193,6 +224,9 @@ export function DesignModePanel({
     isSyncing,
     hasPendingChanges = false,
     onRefreshPreview,
+    onImageUpload,
+    isUploadingImage = false,
+    imageUploadProgress = 0,
 }: DesignModePanelProps) {
     // Handle style changes with commit flag
     const handleStyleChange = useCallback((property: string, value: string, commit: boolean) => {
@@ -307,6 +341,20 @@ export function DesignModePanel({
                 {/* AI Prompt */}
                 <AIPromptInput onSubmit={onAIPrompt} disabled={isSyncing} />
 
+                {/* Image - Only for image elements */}
+                {isImageElement(selectedElement) && onImageUpload && (
+                    <Section title="Image" icon={ImageIcon}>
+                        <ImageControl
+                            imageSrc={getImageSrc(selectedElement)}
+                            isBackgroundImage={selectedElement.tagName.toLowerCase() !== 'img'}
+                            styles={selectedElement.computedStyles}
+                            onImageUpload={onImageUpload}
+                            isUploading={isUploadingImage}
+                            uploadProgress={imageUploadProgress}
+                        />
+                    </Section>
+                )}
+
 
 
                 {/* Typography */}
@@ -352,6 +400,7 @@ export function DesignModePanel({
                         onBatchChange={onBatchStyleChange}
                         onPreview={onStylePreview}
                         onClearPreview={onClearPreview}
+                        showSizeControls={!isTextElement(selectedElement)}
                     />
                 </Section>
 

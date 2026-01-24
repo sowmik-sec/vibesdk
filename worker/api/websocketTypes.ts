@@ -665,6 +665,45 @@ export type DesignModeRefreshCompleteResponse = {
 	error?: string;
 };
 
+/** Client request to upload an image (supports chunking for large files) */
+export type DesignModeImageUploadRequest = {
+	type: 'design_mode_image_upload';
+	/** Unique upload ID to track chunked uploads */
+	uploadId: string;
+	/** Original file name */
+	fileName: string;
+	/** MIME type (e.g., 'image/png', 'image/svg+xml') */
+	mimeType: string;
+	/** Base64-encoded chunk data */
+	chunk: string;
+	/** Current chunk index (0-based) */
+	chunkIndex: number;
+	/** Total number of chunks */
+	totalChunks: number;
+	/** Element selector to update after upload */
+	selector: string;
+	/** Source location for precise code updates */
+	sourceLocation?: {
+		filePath: string;
+		lineNumber: number;
+		columnNumber?: number;
+	};
+	/** Whether this is for background-image (vs img src) */
+	isBackgroundImage?: boolean;
+};
+
+/** Server response after image upload */
+export type DesignModeImageUploadResponse = {
+	type: 'design_mode_image_uploaded';
+	success: boolean;
+	/** Upload ID that was processed */
+	uploadId: string;
+	/** Relative path to the saved image (e.g., '/assets/uploaded-image.png') */
+	imagePath?: string;
+	/** Error message if upload failed */
+	error?: string;
+};
+
 /** Union of design mode messages */
 export type DesignModeWebSocketMessage =
 	| DesignModeStyleUpdateRequest
@@ -676,7 +715,10 @@ export type DesignModeWebSocketMessage =
 	| DesignModeGoToCodeRequest
 	| DesignModeCodeLocationResponse
 	| DesignModeRefreshPreviewRequest
-	| DesignModeRefreshCompleteResponse;
+	| DesignModeRefreshCompleteResponse
+	| DesignModeImageUploadRequest
+	| DesignModeImageUploadResponse;
+
 
 export type WebSocketMessage =
 	| StateMessage
@@ -740,7 +782,8 @@ export type WebSocketMessage =
 	| VaultRequiredMessage
 	| DesignModeStyleUpdatedResponse
 	| DesignModeCodeLocationResponse
-	| DesignModeRefreshCompleteResponse;
+	| DesignModeRefreshCompleteResponse
+	| DesignModeImageUploadResponse;
 
 // A type representing all possible message type strings (e.g., 'generation_started', 'file_generating', etc.)
 export type WebSocketMessageType = WebSocketMessage['type'];

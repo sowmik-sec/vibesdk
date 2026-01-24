@@ -1,11 +1,12 @@
 /**
  * Layout Control - v0 Style
- * Margin and Padding with expand/lock functionality
+ * Margin, Padding, and Size controls
  */
 
 import { useCallback, useMemo } from 'react';
 import type { DesignModeComputedStyles } from '@vibesdk/design-mode-client';
 import { ExpandableSpacing } from './expandable-spacing';
+import { SizeControl } from './size-control';
 
 interface LayoutControlProps {
     styles: DesignModeComputedStyles;
@@ -14,6 +15,8 @@ interface LayoutControlProps {
     onBatchChange?: (changes: Array<{ property: string; value: string }>) => void;
     onPreview: (property: string, value: string) => void;
     onClearPreview: () => void;
+    /** Whether to show size controls (hidden for text elements) */
+    showSizeControls?: boolean;
 }
 
 export function LayoutControl({
@@ -23,6 +26,7 @@ export function LayoutControl({
     onBatchChange,
     onPreview,
     onClearPreview,
+    showSizeControls = true,
 }: LayoutControlProps) {
     // Parse spacing values
     const marginValues = useMemo(() => ({
@@ -131,6 +135,19 @@ export function LayoutControl({
                     onHoverEnd={onClearPreview}
                 />
             </div>
+
+            {/* Size - Hidden for text elements */}
+            {showSizeControls && (
+                <div>
+                    <label className="block text-xs text-text-primary/60 mb-2">Size</label>
+                    <SizeControl
+                        styles={styles}
+                        onChange={onChange}
+                        onPreview={onPreview}
+                        onClearPreview={onClearPreview}
+                    />
+                </div>
+            )}
         </div>
     );
 }

@@ -87,6 +87,7 @@ export const WebSocketMessageResponses: Record<string, WebSocketMessageType> = {
     DESIGN_MODE_STYLE_UPDATED: 'design_mode_style_updated',
     DESIGN_MODE_CODE_LOCATION: 'design_mode_code_location',
     DESIGN_MODE_REFRESH_COMPLETE: 'design_mode_refresh_complete',
+    DESIGN_MODE_IMAGE_UPLOADED: 'design_mode_image_uploaded',
 } as const satisfies Record<string, WebSocketMessageType>;
 
 // WebSocket message types
@@ -130,6 +131,7 @@ export const WebSocketMessageRequests = {
     DESIGN_MODE_REDO: 'design_mode_redo',
     DESIGN_MODE_GO_TO_CODE: 'design_mode_go_to_code',
     DESIGN_MODE_REFRESH_PREVIEW: 'design_mode_refresh_preview',
+    DESIGN_MODE_IMAGE_UPLOAD: 'design_mode_image_upload',
 };
 
 export const PREVIEW_EXPIRED_ERROR = 'Preview expired, attempting redeploy. Please try again after a minute or refresh the page';
