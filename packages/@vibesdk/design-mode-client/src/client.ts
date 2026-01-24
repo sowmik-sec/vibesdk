@@ -361,7 +361,46 @@ function detectElementType(element: HTMLElement): DesignModeElementData['element
     return 'generic';
 }
 
-function extractElementData(element: HTMLElement): DesignModeElementData {
+/** Extract relevant HTML attributes like src, alt, href */
+function extractRelevantAttributes(element: HTMLElement, partial: boolean = false): Record<string, string> {
+    const attrs: Record<string, string> = {};
+    const tagName = element.tagName.toLowerCase();
+
+    // Common attributes to extract based on element type
+    const attrsToExtract: string[] = [];
+
+    if (tagName === 'img') {
+        attrsToExtract.push('src', 'alt', 'srcset', 'loading');
+    } else if (tagName === 'a') {
+        attrsToExtract.push('href', 'target', 'rel');
+    } else if (tagName === 'video' || tagName === 'audio') {
+        attrsToExtract.push('src', 'poster', 'controls', 'autoplay');
+    } else if (tagName === 'iframe') {
+        attrsToExtract.push('src', 'title');
+    } else if (tagName === 'source') {
+        attrsToExtract.push('src', 'type', 'srcset');
+    }
+
+    // Always check for data-src (lazy loading patterns)
+    attrsToExtract.push('data-src');
+
+    for (const attrName of attrsToExtract) {
+        let value = element.getAttribute(attrName);
+        if (value !== null && value !== '') {
+            // In partial mode (e.g. hover), truncate large values (like base64 images)
+            // to prevents crashing the message bridge.
+            if (partial && value.length > 500) {
+                value = value.substring(0, 500) + '...[truncated]';
+            }
+            attrs[attrName] = value;
+        }
+    }
+
+    return attrs;
+}
+
+
+function extractElementData(element: HTMLElement, partial: boolean = false): DesignModeElementData {
     const rect = element.getBoundingClientRect();
     // Use synchronous fallback for extractElementData (async version used for text edit)
     const sourceLocation = getFiberSourceFallback(element) ?? undefined;
@@ -390,6 +429,8 @@ function extractElementData(element: HTMLElement): DesignModeElementData {
         elementType: detectElementType(element),
         hasInlineStyles: !!(element.style && element.style.cssText),
         isNested: !!element.parentElement && element.parentElement.tagName !== 'BODY',
+        // In partial mode (hover), truncate attributes to avoid performance issues with large base64 images
+        attributes: extractRelevantAttributes(element, partial),
     };
 }
 
@@ -420,7 +461,8 @@ function handleMouseMove(event: MouseEvent): void {
         if (highlightOverlay) {
             positionOverlay(highlightOverlay, target.getBoundingClientRect());
         }
-        sendMessage({ type: 'design_mode_element_hovered', element: extractElementData(target) });
+        // Use partial=true for hover to avoid sending massive payloads (e.g. base64 images) repeatedly
+        sendMessage({ type: 'design_mode_element_hovered', element: extractElementData(target, true) });
     }
 }
 

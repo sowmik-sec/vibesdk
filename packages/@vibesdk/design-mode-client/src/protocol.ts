@@ -48,6 +48,8 @@ export interface DesignModeElementData {
     hasInlineStyles?: boolean;
     /** Whether element is nested inside another styled element */
     isNested?: boolean;
+    /** HTML attributes like src, alt, href, etc. */
+    attributes?: Record<string, string>;
 }
 
 /**
