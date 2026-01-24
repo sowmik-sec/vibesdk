@@ -43,6 +43,7 @@ let hoveredElement: HTMLElement | null = null;
 let highlightOverlay: HTMLElement | null = null;
 let selectionOverlay: HTMLElement | null = null;
 let textEditOverlay: HTMLElement | null = null;
+let designModeStyleElement: HTMLStyleElement | null = null;
 
 // ============================================================================
 // Version Check & Initialization Guard
@@ -53,10 +54,10 @@ function shouldInitialize(): boolean {
         const existingVersion = parseFloat(window.__vibesdk_design_mode_version);
         const newVersion = parseFloat(SCRIPT_VERSION);
         if (existingVersion >= newVersion) {
-            console.log(`[VibeSDK] Version ${existingVersion} already loaded, skipping ${SCRIPT_VERSION}`);
+            // console.log(`[VibeSDK] Version ${existingVersion} already loaded, skipping ${SCRIPT_VERSION}`);
             return false;
         }
-        console.log(`[VibeSDK] Upgrading from version ${existingVersion} to ${SCRIPT_VERSION}`);
+        // console.log(`[VibeSDK] Upgrading from version ${existingVersion} to ${SCRIPT_VERSION}`);
     }
     window.__vibesdk_design_mode_version = SCRIPT_VERSION;
 
@@ -105,7 +106,7 @@ function createOverlay(id: string, color: string, borderStyle: string = 'solid')
     `;
 
     // Debug log to confirm style application
-    console.log(`[VibeSDK] Updating overlay ${id} with style: border: 2px ${borderStyle} ${color}`);
+    // console.log(`[VibeSDK] Updating overlay ${id} with style: border: 2px ${borderStyle} ${color}`);
 
     overlay.style.cssText = newStyle;
 
@@ -126,7 +127,7 @@ function hideOverlay(overlay: HTMLElement | null): void {
 
 function initializeOverlays(): void {
     // Purple dashed for hover (#8b5cf6)
-    console.log('[VibeSDK] Initializing hover overlay (purple dashed)...');
+    // console.log('[VibeSDK] Initializing hover overlay (purple dashed)...');
     highlightOverlay = createOverlay('__vibesdk_highlight_overlay', '#8b5cf6', 'dashed');
 
     // Blue solid for selection (#3b82f6)
@@ -189,7 +190,7 @@ async function loadReactGrab(): Promise<void> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const grabModule = await import('react-grab/core') as any;
         reactGrabGetStack = grabModule.getStack;
-        console.log('[VibeSDK] react-grab loaded successfully');
+        // console.log('[VibeSDK] react-grab loaded successfully');
     } catch (e) {
         console.warn('[VibeSDK] react-grab not available, using fallback:', (e as Error).message);
     }
@@ -218,7 +219,7 @@ async function getSourceLocationWithReactGrab(element: HTMLElement): Promise<Des
                 columnNumber: stack[0].source.columnNumber || 0,
             };
 
-            console.log('[VibeSDK] react-grab source:', location);
+            // console.log('[VibeSDK] react-grab source:', location);
             return location;
         }
     } catch (e) {
@@ -315,8 +316,11 @@ function extractInlineStyles(element: HTMLElement): Record<string, string> {
 }
 
 function extractTailwindClasses(element: HTMLElement): string[] {
-    if (!element.className || typeof element.className !== 'string') return [];
-    return element.className.trim().split(/\s+/).filter(c => c && !c.startsWith('__vibesdk'));
+    // Use getAttribute to handle both HTML and SVG elements
+    // SVG elements have SVGAnimatedString for className which can't be serialized
+    const classAttr = element.getAttribute('class');
+    if (!classAttr) return [];
+    return classAttr.trim().split(/\s+/).filter(c => c && !c.startsWith('__vibesdk'));
 }
 
 function hasDirectTextContent(element: HTMLElement): boolean {
@@ -365,7 +369,8 @@ function extractElementData(element: HTMLElement): DesignModeElementData {
     return {
         selector: generateSelector(element),
         tagName: element.tagName.toLowerCase(),
-        className: element.className || '',
+        // Use getAttribute for className to handle SVG elements (SVGAnimatedString can't be cloned)
+        className: element.getAttribute('class') || '',
         tailwindClasses: extractTailwindClasses(element),
         inlineStyles: extractInlineStyles(element),
         computedStyles: extractComputedStyles(element),
@@ -777,6 +782,80 @@ function clearAllPreviewStyles(): void {
 }
 
 // ============================================================================
+// Design Mode Styles (Animation/Transition Freeze + Input Blocking)
+// ============================================================================
+
+const DESIGN_MODE_CSS = `
+/* Disable all animations and transitions */
+*:not([id^="__vibesdk"]) {
+    transition: none !important;
+    animation: none !important;
+}
+
+/* Disable hover effects that might interfere with selection */
+*:not([id^="__vibesdk"]):hover {
+    transform: none !important;
+}
+
+/* Block input interactions */
+input:not([id^="__vibesdk"]),
+textarea:not([id^="__vibesdk"]),
+select:not([id^="__vibesdk"]) {
+    pointer-events: none !important;
+    user-select: none !important;
+    cursor: crosshair !important;
+}
+
+/* Prevent contenteditable elements from being editable */
+[contenteditable]:not([id^="__vibesdk"]) {
+    -webkit-user-modify: read-only !important;
+    cursor: crosshair !important;
+}
+`;
+
+function injectDesignModeStyles(): void {
+    if (designModeStyleElement) return;
+
+    designModeStyleElement = document.createElement('style');
+    designModeStyleElement.id = '__vibesdk_design_mode_styles';
+    designModeStyleElement.textContent = DESIGN_MODE_CSS;
+    document.head.appendChild(designModeStyleElement);
+}
+
+function removeDesignModeStyles(): void {
+    if (designModeStyleElement) {
+        designModeStyleElement.remove();
+        designModeStyleElement = null;
+    }
+}
+
+function isFormElement(element: HTMLElement): boolean {
+    const tagName = element.tagName.toLowerCase();
+    return tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+}
+
+function blockFormInputKeydown(event: KeyboardEvent): void {
+    if (!isDesignModeActive) return;
+    const target = event.target as HTMLElement;
+    if (target && isFormElement(target)) {
+        // Allow Escape key to pass through for deselection
+        if (event.key !== 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }
+}
+
+function blockFormInputFocus(event: FocusEvent): void {
+    if (!isDesignModeActive) return;
+    const target = event.target as HTMLElement;
+    if (target && isFormElement(target)) {
+        event.preventDefault();
+        target.blur();
+    }
+}
+
+// ============================================================================
 // Message Handler
 // ============================================================================
 
@@ -851,6 +930,7 @@ function enableDesignMode(): void {
 
     isDesignModeActive = true;
     initializeOverlays();
+    injectDesignModeStyles();
 
     document.addEventListener('mousemove', handleMouseMove, { capture: true });
     document.addEventListener('mouseleave', handleMouseLeave);
@@ -859,10 +939,12 @@ function enableDesignMode(): void {
     // REMOVED: mousedown/mouseup listeners that prevented focus change
     // This allows the text editor to lose focus (blur) when clicking outside
     document.addEventListener('keydown', handleKeyDown, true);
+    document.addEventListener('keydown', blockFormInputKeydown, true);
+    document.addEventListener('focus', blockFormInputFocus, true);
     window.addEventListener('scroll', handleScroll, { capture: true });
     document.body.style.cursor = 'crosshair';
 
-    console.log(`[VibeSDK v${SCRIPT_VERSION}] Design mode enabled`);
+    // console.log(`[VibeSDK v${SCRIPT_VERSION}] Design mode enabled`);
 }
 
 function disableDesignMode(): void {
@@ -873,19 +955,22 @@ function disableDesignMode(): void {
     hoveredElement = null;
 
     document.removeEventListener('mousemove', handleMouseMove, true);
-    document.removeEventListener('mouseleave', handleMouseLeave, true); // Remove mouseleave handler
+    document.removeEventListener('mouseleave', handleMouseLeave, true);
     document.removeEventListener('click', handleClick, true);
     document.removeEventListener('dblclick', handleDoubleClick, true);
     document.removeEventListener('keydown', handleKeyDown, true);
+    document.removeEventListener('keydown', blockFormInputKeydown, true);
+    document.removeEventListener('focus', blockFormInputFocus, true);
     window.removeEventListener('scroll', handleScroll, true);
 
     cleanupOverlays();
     cleanupTextEdit();
     clearAllPreviewStyles();
+    removeDesignModeStyles();
 
     document.body.style.cursor = '';
 
-    console.log('[VibeSDK] Design mode disabled');
+    // console.log('[VibeSDK] Design mode disabled');
 }
 
 // ============================================================================
@@ -895,7 +980,7 @@ function disableDesignMode(): void {
 function init(): void {
     if (!shouldInitialize()) return;
 
-    console.log(`[VibeSDK] Design mode client initialized - VERSION: ${SCRIPT_VERSION}`);
+    // console.log(`[VibeSDK] Design mode client initialized - VERSION: ${SCRIPT_VERSION}`);
 
     window.addEventListener('message', handleParentMessage);
     sendMessage({ type: 'design_mode_ready' });

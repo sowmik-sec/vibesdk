@@ -245,7 +245,7 @@ export function generateProjectName(
  * Note: react-grab is imported in index.html via import.meta.env.DEV check
  */
 function injectDesignModeScript(html: string): string {
-  const designModeScript = `<script>${getClientScript()}</script>`;
+  const designModeScript = `<script id="vibesdk-design-mode-script">${getClientScript()}</script>`;
 
   // Inject before </head> or </body>
   if (html.includes('</head>')) {

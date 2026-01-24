@@ -138,9 +138,17 @@ function injectDesignModeScript(html: string): string {
     // 3. Script tags containing "vibesdk_design_mode" (protocol string)
     // 4. Script tags containing "Design mode enabled" (console log in legacy script)
     // This regex matches any <script> content that has one of these keywords
+    // 5. Script tags containing "extractTailwindClasses" (function name in client script)
+    // This regex matches any <script> content that has one of these keywords
     // [\s\S]*? ensures we match across newlines
     const beforeLength = html.length;
-    const zombieRegex = /<script\b[^>]*>[\s\S]*?(?:__vibesdk|design-mode-client|vibesdk_design_mode|Design mode enabled)[\s\S]*?<\/script>/gi;
+
+    // First remove by ID (most reliable)
+    const idRegex = /<script[^>]*id=["']vibesdk-design-mode-script["'][^>]*>[\s\S]*?<\/script>/gi;
+    html = html.replace(idRegex, '');
+
+    // Then remove by content patterns
+    const zombieRegex = /<script\b[^>]*>[\s\S]*?(?:__vibesdk|design-mode-client|vibesdk_design_mode|Design mode enabled|extractTailwindClasses)[\s\S]*?<\/script>/gi;
 
     // Debug: Log the first 2000 chars to see what we are dealing with
     logger.debug('[VibeSDK] HTML content before cleanup:', {
