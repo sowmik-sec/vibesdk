@@ -1013,23 +1013,25 @@ export async function handleDesignModeImageUpload(
         const extension = mimeType.split('/')[1] || 'png';
         const newFileName = `image-${timestamp}-${random}.${extension}`;
 
-        // Save to public/uploads directory
-        // We write directly to disk to bypass FileManager sqlite limits for binary assets
-        // The directory public/uploads/ is gitignored to preventing syncing issues
-        const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-        const fs = await import('fs/promises');
+        // Save to public/uploads directory using agent.saveFile
+        // Note: In Cloudflare Workers/Miniflare, we cannot use fs.mkdir/writeFile.
+        // We rely on the agent's abstraction (Git/State) to handle persistence.
+        // We use 'binary' encoding string to simulate binary file support in the text-based store.
+        const uploadsDir = 'public/uploads';
+        const relativeFilePath = path.join(uploadsDir, newFileName);
+
+        // Convert Buffer to binary string (Latin1) to preserve bytes in generic string storage
+        // This relies on the underying storage (Git) handling binary-as-text safely or us handling it on serve.
+        // Ideally, we would use a dedicated blob storage, but agent.saveFile is the only write API.
+        const fileContent = binaryBuffer.toString('binary');
 
         try {
-            // Ensure directory exists
-            try {
-                await fs.access(uploadsDir);
-            } catch {
-                await fs.mkdir(uploadsDir, { recursive: true });
-            }
-
-            // Write file
-            const filePath = path.join(uploadsDir, newFileName);
-            await fs.writeFile(filePath, binaryBuffer);
+            // Save the file via the agent
+            await agent.saveFile(
+                relativeFilePath,
+                fileContent,
+                `feat: upload image ${newFileName}`
+            );
 
             // URL reference to the file
             const imageUrl = `/uploads/${newFileName}`;
@@ -1078,7 +1080,7 @@ export async function handleDesignModeImageUpload(
                                 await agent.saveFile(
                                     normalizedPath,
                                     updatedContent,
-                                    `feat: upload image to ${newFileName}`
+                                    `feat: update image source to ${newFileName}`
                                 );
 
                                 // Also trigger a sandbox deploy to ensure the new HTML/JS is served 
@@ -1090,6 +1092,11 @@ export async function handleDesignModeImageUpload(
                                             filePath: normalizedPath,
                                             fileContents: updatedContent,
                                             filePurpose: file.filePurpose
+                                        }, {
+                                            // Also deploy the image file specifically to ensure it's picked up
+                                            filePath: relativeFilePath,
+                                            fileContents: fileContent,
+                                            filePurpose: 'asset'
                                         }],
                                         false,
                                         'image upload',
@@ -1121,9 +1128,10 @@ export async function handleDesignModeImageUpload(
                 imagePath: imageUrl,
             }));
 
-        } catch (fsError) {
-            logger.error('Failed to write image file', { error: fsError });
-            throw fsError;
+
+        } catch (saveError) {
+            logger.error('Failed to save image file', { error: saveError });
+            throw saveError;
         }
 
     } catch (error) {
