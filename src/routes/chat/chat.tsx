@@ -709,6 +709,9 @@ export default function Chat() {
 								isSyncing={designMode.isSyncing}
 								hasPendingChanges={designMode.hasPendingChanges}
 								onRefreshPreview={designMode.refreshPreview}
+								onImageUpload={designMode.uploadImage}
+								isUploadingImage={designMode.isUploadingImage}
+								imageUploadProgress={designMode.imageUploadProgress}
 							/>
 						</div>
 					) : (
