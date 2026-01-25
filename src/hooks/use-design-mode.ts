@@ -730,18 +730,30 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                     console.log('[useDesignMode] Image upload response received:', message);
 
                     if (message.success) {
-                        console.log('[useDesignMode] Image uploaded successfully, triggering deployment...');
+                        if (message.requiresManualUpdate) {
+                            console.warn('[useDesignMode] Image uploaded but requires manual code update');
+                            setSyncError(
+                                `Image uploaded to ${message.imagePath}\n\n` +
+                                `Please manually update your code to use the new image:\n` +
+                                `${message.sourceHint ? `In ${message.sourceHint}, ` : ''}` +
+                                `change the src attribute to "${message.imagePath}"`
+                            );
+                        } else {
+                            console.log('[useDesignMode] Image uploaded and deployed successfully');
+                            
+                            // Re-select the element to refresh its data with the new src attribute
+                            // This ensures the image preview shows the updated image
+                            if (selectedElement) {
+                                console.log('[useDesignMode] Re-selecting element to refresh image preview');
+                                sendToIframe({
+                                    type: 'design_mode_select_element',
+                                    selector: selectedElement.selector,
+                                });
+                            }
+                        }
                         
-                        // Set flag to hard reload after deployment completes
-                        // This is necessary because backend modified source files,
-                        // and we need to clear Vite's HMR module cache
-                        needsHardReloadRef.current = true;
-                        
-                        // Trigger deployment
-                        websocket.send(JSON.stringify({
-                            type: 'design_mode_refresh_preview',
-                        }));
-                        
+                        // The backend has already done an optimistic deployment with the updated files
+                        // No need for a second deployment - just clear the pending state
                         setHasPendingChanges(false);
                         committedStylesRef.current.clear();
                     } else {
@@ -754,20 +766,12 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 }
 
                 if (message.type === 'design_mode_refresh_complete') {
-                    console.log('[useDesignMode] Deployment refresh complete');
+                    console.log('[useDesignMode] Deployment refresh complete', message);
                     
-                    // If we uploaded an image, we need to hard reload to clear HMR cache
+                    // Reset the flag - the optimistic deployment should have already updated the sandbox
+                    // Vite HMR will handle the refresh automatically
                     if (needsHardReloadRef.current) {
-                        console.log('[useDesignMode] Hard reloading iframe to clear module cache after image upload');
-                        const iframe = iframeRef?.current;
-                        if (iframe) {
-                            // Force a complete reload by reassigning src
-                            const currentSrc = iframe.src;
-                            iframe.src = '';
-                            setTimeout(() => {
-                                iframe.src = currentSrc;
-                            }, 50);
-                        }
+                        console.log('[useDesignMode] Files deployed, relying on Vite HMR');
                         needsHardReloadRef.current = false;
                     }
                 }
@@ -781,7 +785,7 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         return () => {
             websocket.removeEventListener('message', handleWebSocketMessage);
         };
-    }, [websocket, iframeRef]);
+    }, [websocket, iframeRef, sendToIframe, selectedElement]);
 
     // ========================================================================
     // Keyboard Shortcuts
