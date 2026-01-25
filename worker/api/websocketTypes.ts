@@ -704,6 +704,14 @@ export type DesignModeImageUploadResponse = {
 	error?: string;
 };
 
+/** File save response */
+export type FileSavedResponse = {
+	type: 'file_saved';
+	success: boolean;
+	filePath: string;
+	message?: string;
+};
+
 /** Union of design mode messages */
 export type DesignModeWebSocketMessage =
 	| DesignModeStyleUpdateRequest
@@ -783,7 +791,8 @@ export type WebSocketMessage =
 	| DesignModeStyleUpdatedResponse
 	| DesignModeCodeLocationResponse
 	| DesignModeRefreshCompleteResponse
-	| DesignModeImageUploadResponse;
+	| DesignModeImageUploadResponse
+	| FileSavedResponse;
 
 // A type representing all possible message type strings (e.g., 'generation_started', 'file_generating', etc.)
 export type WebSocketMessageType = WebSocketMessage['type'];

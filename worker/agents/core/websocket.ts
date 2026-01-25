@@ -349,6 +349,36 @@ export function handleWebSocketMessage(
                     });
                 });
                 break;
+            case 'save_file':
+                // Handle file save from editor
+                logger.info('Received file save request', {
+                    filePath: parsedMessage.filePath,
+                    contentLength: parsedMessage.content?.length || 0
+                });
+
+                if (!parsedMessage.filePath || !parsedMessage.content) {
+                    sendError(connection, 'Missing filePath or content for save_file');
+                    return;
+                }
+
+                (async () => {
+                    try {
+                        // Save the file to the workspace
+                        await agent.saveFile(parsedMessage.filePath, parsedMessage.content, 'Manual save from editor');
+                        
+                        sendToConnection(connection, WebSocketMessageResponses.FILE_SAVED, {
+                            success: true,
+                            filePath: parsedMessage.filePath,
+                            message: `File saved: ${parsedMessage.filePath}`
+                        });
+                        
+                        logger.info('File saved successfully', { filePath: parsedMessage.filePath });
+                    } catch (error) {
+                        logger.error('Error saving file:', error);
+                        sendError(connection, `Error saving file: ${error instanceof Error ? error.message : String(error)}`);
+                    }
+                })();
+                break;
             default:
                 sendError(connection, `Unknown message type: ${parsedMessage.type}`);
         }

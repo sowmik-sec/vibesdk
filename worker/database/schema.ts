@@ -515,6 +515,57 @@ export const systemSettings = sqliteTable('system_settings', {
 }));
 
 // ========================================
+// IMAGE AND ASSET MANAGEMENT
+// ========================================
+
+/**
+ * Project Images table - Track uploaded images for design mode
+ * Supports soft delete with 30-day retention and deduplication
+ */
+export const projectImages = sqliteTable('project_images', {
+    id: text('id').primaryKey(),
+    appId: text('app_id').notNull().references(() => apps.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    
+    // File Information
+    filePath: text('file_path').notNull(), // public/uploads/image-123.webp
+    originalFilename: text('original_filename').notNull(),
+    mimeType: text('mime_type').notNull(), // image/webp, image/jpeg, image/png
+    sizeBytes: integer('size_bytes').notNull(),
+    hash: text('hash').notNull(), // SHA-256 for deduplication
+    
+    // Image Metadata
+    width: integer('width'),
+    height: integer('height'),
+    format: text('format').notNull(), // webp, jpeg, png, gif, svg
+    isOptimized: integer('is_optimized', { mode: 'boolean' }).default(false),
+    originalSizeBytes: integer('original_size_bytes'), // Size before optimization
+    compressionRatio: real('compression_ratio'), // originalSize / finalSize
+    
+    // Usage Tracking
+    isBackgroundImage: integer('is_background_image', { mode: 'boolean' }).default(false),
+    usageCount: integer('usage_count').default(0), // Number of times referenced in code
+    lastReferencedAt: integer('last_referenced_at', { mode: 'timestamp' }),
+    
+    // Soft Delete with 30-day Retention
+    deletedAt: integer('deleted_at', { mode: 'timestamp' }),
+    deletedBy: text('deleted_by').references(() => users.id),
+    
+    // Timestamps
+    uploadedAt: integer('uploaded_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
+    createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+    appIdIdx: index('project_images_app_id_idx').on(table.appId),
+    userIdIdx: index('project_images_user_id_idx').on(table.userId),
+    hashIdx: index('project_images_hash_idx').on(table.hash),
+    deletedAtIdx: index('project_images_deleted_at_idx').on(table.deletedAt),
+    uploadedAtIdx: index('project_images_uploaded_at_idx').on(table.uploadedAt),
+    lastReferencedAtIdx: index('project_images_last_referenced_at_idx').on(table.lastReferencedAt),
+    filePathIdx: uniqueIndex('project_images_file_path_idx').on(table.filePath),
+}));
+
+// ========================================
 // TYPE EXPORTS FOR APPLICATION USE
 // ========================================
 
@@ -570,3 +621,6 @@ export type NewUserModelProvider = typeof userModelProviders.$inferInsert;
 
 export type Star = typeof stars.$inferSelect;
 export type NewStar = typeof stars.$inferInsert;
+
+export type ProjectImage = typeof projectImages.$inferSelect;
+export type NewProjectImage = typeof projectImages.$inferInsert;

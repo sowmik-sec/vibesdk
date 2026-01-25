@@ -87,6 +87,7 @@
 		"@types/mdast": "^4.0.4",
 		"@vitejs/plugin-react": "^5.1.2",
 		"agents": "^0.2.32",
+		"browser-image-compression": "^2.0.2",
 		"class-variance-authority": "^0.7.1",
 		"cli-table3": "^0.6.5",
 		"cloudflare": "^4.5.0",

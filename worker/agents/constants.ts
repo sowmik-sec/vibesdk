@@ -88,6 +88,9 @@ export const WebSocketMessageResponses: Record<string, WebSocketMessageType> = {
     DESIGN_MODE_CODE_LOCATION: 'design_mode_code_location',
     DESIGN_MODE_REFRESH_COMPLETE: 'design_mode_refresh_complete',
     DESIGN_MODE_IMAGE_UPLOADED: 'design_mode_image_uploaded',
+    
+    // File operations
+    FILE_SAVED: 'file_saved',
 } as const satisfies Record<string, WebSocketMessageType>;
 
 // WebSocket message types

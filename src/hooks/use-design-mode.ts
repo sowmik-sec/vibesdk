@@ -118,6 +118,8 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
     const previewStylesRef = useRef<Map<string, Record<string, string>>>(new Map());
     // Track committed (but not deployed) styles to persist across temporary previews
     const committedStylesRef = useRef<Map<string, Record<string, string>>>(new Map());
+    // Track if we need to hard reload after deployment (for image uploads)
+    const needsHardReloadRef = useRef(false);
 
     // Debounce timer for backend persistence (to prevent immediate page reload)
     // const persistenceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -206,8 +208,14 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
 
             case 'design_mode_text_edited':
                 // Handle text edit - this will need to sync with backend
-                if (selectedElement) {
-                    handleTextChange(message.oldText, message.newText);
+                if (selectedElement && websocket && websocket.readyState === 1) {
+                    websocket.send(JSON.stringify({
+                        type: 'design_mode_text_update',
+                        selector: selectedElement.selector,
+                        filePath: selectedElement.sourceLocation?.filePath,
+                        oldText: message.oldText,
+                        newText: message.newText,
+                    }));
                 }
                 break;
 
@@ -236,7 +244,7 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                 setSyncError(message.error);
                 break;
         }
-    }, [isEnabled, selectedElement, sendToIframe]);
+    }, [isEnabled, selectedElement, sendToIframe, websocket]);
 
     // Listen for messages from iframe
     useEffect(() => {
@@ -722,12 +730,18 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
                     console.log('[useDesignMode] Image upload response received:', message);
 
                     if (message.success) {
-                        console.log('[useDesignMode] Image uploaded successfully, refreshing preview...');
-                        // Trigger a preview refresh to show the new image
-                        // Send message to backend to trigger a fresh deploy
+                        console.log('[useDesignMode] Image uploaded successfully, triggering deployment...');
+                        
+                        // Set flag to hard reload after deployment completes
+                        // This is necessary because backend modified source files,
+                        // and we need to clear Vite's HMR module cache
+                        needsHardReloadRef.current = true;
+                        
+                        // Trigger deployment
                         websocket.send(JSON.stringify({
                             type: 'design_mode_refresh_preview',
                         }));
+                        
                         setHasPendingChanges(false);
                         committedStylesRef.current.clear();
                     } else {
@@ -737,6 +751,25 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
 
                     setIsUploadingImage(false);
                     setImageUploadProgress(0);
+                }
+
+                if (message.type === 'design_mode_refresh_complete') {
+                    console.log('[useDesignMode] Deployment refresh complete');
+                    
+                    // If we uploaded an image, we need to hard reload to clear HMR cache
+                    if (needsHardReloadRef.current) {
+                        console.log('[useDesignMode] Hard reloading iframe to clear module cache after image upload');
+                        const iframe = iframeRef?.current;
+                        if (iframe) {
+                            // Force a complete reload by reassigning src
+                            const currentSrc = iframe.src;
+                            iframe.src = '';
+                            setTimeout(() => {
+                                iframe.src = currentSrc;
+                            }, 50);
+                        }
+                        needsHardReloadRef.current = false;
+                    }
                 }
             } catch {
                 // Not JSON or not our message type
@@ -748,7 +781,7 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         return () => {
             websocket.removeEventListener('message', handleWebSocketMessage);
         };
-    }, [websocket]);
+    }, [websocket, iframeRef]);
 
     // ========================================================================
     // Keyboard Shortcuts
@@ -845,7 +878,6 @@ export function useDesignMode(options: UseDesignModeOptions = {}): UseDesignMode
         canRedo,
         clearSelection,
         updateText,
-        selectedElement,
         isSyncing,
         syncError,
         hasPendingChanges,

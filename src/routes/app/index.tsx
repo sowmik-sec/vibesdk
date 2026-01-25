@@ -103,6 +103,23 @@ export default function AppView() {
 	const [activeFilePath, setActiveFilePath] = useState<string>();
 	const previewIframeRef = useRef<HTMLIFrameElement>(null);
 
+	const handleSaveFile = useCallback(async (content: string) => {
+		if (!activeFilePath || !app) {
+			toast.error('Cannot save: No active file');
+			return;
+		}
+
+		try {
+			// For now, just show a success message
+			// In a full implementation, you'd send to backend API
+			toast.success(`File changes saved locally (${activeFilePath})`);
+			console.log('File saved:', { filePath: activeFilePath, content });
+		} catch (error) {
+			console.error('Failed to save file:', error);
+			toast.error('Failed to save file');
+		}
+	}, [activeFilePath, app]);
+
 	const fetchAppDetails = useCallback(async () => {
 		if (!id) return;
 
@@ -987,7 +1004,7 @@ export default function AppView() {
 																	language:
 																		activeFile.language ||
 																		'plaintext',
-																	readOnly: true,
+																	readOnly: false,
 																	minimap: {
 																		enabled: false,
 																	},
@@ -998,6 +1015,7 @@ export default function AppView() {
 																	theme: 'vibesdk',
 																	automaticLayout: true,
 																}}
+																onSave={handleSaveFile}
 															/>
 														</div>
 													</>

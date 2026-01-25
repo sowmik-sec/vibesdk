@@ -13,6 +13,7 @@ import { PreviewHeaderActions } from './preview-header-actions';
 import { EditorHeaderActions } from './editor-header-actions';
 import { Copy } from './copy';
 import { featureRegistry } from '@/features';
+import { toast } from 'sonner';
 import type { FileType, BlueprintType, BehaviorType, ModelConfigsInfo, TemplateDetails, ProjectType } from '@/api-types';
 import type { ContentDetectionResult } from '../utils/content-detector';
 import type { GitHubExportHook } from '@/hooks/use-github-export';
@@ -97,12 +98,31 @@ export function MainContentPanel(props: MainContentPanelProps) {
 		onGitCloneClick,
 		isGitHubExportReady,
 		githubExport,
+		templateDetails,
 		behaviorType,
 		websocket,
 		previewRef,
 		editorRef,
-		templateDetails,
 	} = props;
+
+	const handleSaveFile = useCallback((content: string) => {
+		if (!activeFile || !websocket) {
+			toast.error('Cannot save: No active file or connection');
+			return;
+		}
+
+		try {
+			websocket.send(JSON.stringify({
+				type: 'save_file',
+				filePath: activeFile.filePath,
+				content,
+			}));
+			toast.success(`Saved ${activeFile.filePath}`);
+		} catch (error) {
+			console.error('Failed to save file:', error);
+			toast.error('Failed to save file');
+		}
+	}, [activeFile, websocket]);
 
 	// Feature-specific state management
 	const [featureState, setFeatureStateInternal] = useState<Record<string, unknown>>({});
@@ -344,7 +364,7 @@ export function MainContentPanel(props: MainContentPanelProps) {
 							createOptions={{
 								value: activeFile.fileContents || '',
 								language: activeFile.language || 'plaintext',
-								readOnly: true,
+								readOnly: false,
 								minimap: { enabled: false },
 								lineNumbers: 'on',
 								scrollBeyondLastLine: false,
@@ -352,6 +372,7 @@ export function MainContentPanel(props: MainContentPanelProps) {
 								theme: 'vibesdk',
 								automaticLayout: true,
 							}}
+							onSave={handleSaveFile}
 							find={edit?.filePath === activeFile.filePath ? edit.search : undefined}
 							replace={edit?.filePath === activeFile.filePath ? edit.replacement : undefined}
 						/>

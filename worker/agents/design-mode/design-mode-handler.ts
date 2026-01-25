@@ -53,7 +53,7 @@ function normalizeFilePath(filePath: string): string {
     }
 
     // Try more general workspace pattern
-    const generalWorkspaceMatch = filePath.match(/\/workspace\/[^\/]+\/(.+)/);
+    const generalWorkspaceMatch = filePath.match(/\/workspace\/[^/]+\/(.+)/);
     if (generalWorkspaceMatch) {
         return generalWorkspaceMatch[1];
     }
@@ -952,7 +952,11 @@ export async function handleDesignModeImageUpload(
         selector,
         sourceLocation,
         isBackgroundImage,
+        elementContext,
     } = request;
+    
+    // Support both sourceLocation (legacy) and elementContext (current)
+    const actualSourceLocation = sourceLocation || elementContext;
 
     logger.info('Design mode image upload chunk received', {
         uploadId,
@@ -961,6 +965,8 @@ export async function handleDesignModeImageUpload(
         chunkIndex,
         totalChunks,
         selector,
+        hasSourceLocation: !!actualSourceLocation,
+        sourceFilePath: actualSourceLocation?.filePath || 'none',
     });
 
     try {
@@ -974,7 +980,7 @@ export async function handleDesignModeImageUpload(
                 totalChunks,
                 receivedChunks: 0,
                 selector,
-                sourceLocation,
+                sourceLocation: actualSourceLocation,
                 isBackgroundImage,
             };
             uploadBuffers.set(uploadId, buffer);
@@ -1013,69 +1019,312 @@ export async function handleDesignModeImageUpload(
         const extension = mimeType.split('/')[1] || 'png';
         const newFileName = `image-${timestamp}-${random}.${extension}`;
 
-        // Save to public/uploads directory using agent.saveFile
-        // Note: In Cloudflare Workers/Miniflare, we cannot use fs.mkdir/writeFile.
-        // We rely on the agent's abstraction (Git/State) to handle persistence.
-        // We use 'binary' encoding string to simulate binary file support in the text-based store.
         const uploadsDir = 'public/uploads';
         const relativeFilePath = path.join(uploadsDir, newFileName);
 
-        // Convert Buffer to binary string (Latin1) to preserve bytes in generic string storage
-        // This relies on the underying storage (Git) handling binary-as-text safely or us handling it on serve.
-        // Ideally, we would use a dedicated blob storage, but agent.saveFile is the only write API.
-        const fileContent = binaryBuffer.toString('binary');
+        // Convert to base64 string with prefix for binary data handling
+        // The 'base64:' prefix signals writeFilesViaScript to skip TextEncoder and use raw base64
+        const fileContent = 'base64:' + binaryBuffer.toString('base64');
+
+        // URL reference to the file with cache-busting timestamp
+        const imageUrl = `/uploads/${newFileName}?t=${timestamp}`;
 
         try {
-            // Save the file via the agent
-            await agent.saveFile(
-                relativeFilePath,
-                fileContent,
-                `feat: upload image ${newFileName}`
-            );
+            // Check if we have valid source location info
+            const hasValidSourceLocation = actualSourceLocation && 
+                actualSourceLocation.filePath && 
+                actualSourceLocation.filePath.trim().length > 0;
+            
+            logger.info('Processing image upload', {
+                hasSourceLocation: !!actualSourceLocation,
+                hasValidSourceLocation,
+                sourceFilePath: actualSourceLocation?.filePath || 'none',
+                selector
+            });
+            
+            if (hasValidSourceLocation) {
+                const normalizedPath = normalizeFilePath(actualSourceLocation.filePath);
 
-            // URL reference to the file
-            const imageUrl = `/uploads/${newFileName}`;
-
-            if (sourceLocation) {
-                const normalizedPath = normalizeFilePath(sourceLocation.filePath);
+                logger.info('Looking for source file to update', { 
+                    normalizedPath, 
+                    lineNumber: actualSourceLocation.lineNumber 
+                });
 
                 // Read the file and update the image src with the URL
                 const files = agent.listFiles();
                 const file = files.find(f => f.filePath === normalizedPath);
 
+                logger.info('File lookup result', { 
+                    found: !!file, 
+                    hasContents: !!file?.fileContents,
+                    totalFiles: files.length,
+                    searchingFor: normalizedPath,
+                    fileContentPreview: file?.fileContents?.substring(0, 500) || 'NO CONTENT'
+                });
+
                 if (file && file.fileContents) {
                     const lines = file.fileContents.split('\n');
-                    const targetLine = lines[sourceLocation.lineNumber - 1];
+                    let targetLineIndex = actualSourceLocation.lineNumber - 1;
+                    let targetLine = lines[targetLineIndex];
+                    
+                    logger.info('Lines around target', {
+                        requestedLine: actualSourceLocation.lineNumber,
+                        totalLines: lines.length,
+                        line48: lines[47]?.substring(0, 150) || 'N/A',
+                        line49: lines[48]?.substring(0, 150) || 'N/A',
+                        line50: lines[49]?.substring(0, 150) || 'N/A',
+                        line51: lines[50]?.substring(0, 150) || 'N/A',
+                        line52: lines[51]?.substring(0, 150) || 'N/A'
+                    });
+
+                    // If line number is out of bounds, search for img tag or component
+                    if (!targetLine || targetLineIndex >= lines.length) {
+                        logger.warn('Line number out of bounds, searching for image element', {
+                            requestedLine: actualSourceLocation.lineNumber,
+                            totalLines: lines.length,
+                            selector,
+                            sampleLines: lines.slice(0, Math.min(5, lines.length)).map((l, i) => `${i + 1}: ${l.substring(0, 80)}`)
+                        });
+
+                        // Search for <img or image-related JSX
+                        const imgPatterns = [
+                            /<img\s/i,
+                            /<Image\s/i,
+                            /Logo/i,
+                            /Icon/i,
+                            /avatar/i,
+                            /src=/i, // Any element with src attribute
+                        ];
+
+                        for (let i = 0; i < lines.length; i++) {
+                            const line = lines[i];
+                            if (imgPatterns.some(pattern => pattern.test(line))) {
+                                targetLineIndex = i;
+                                targetLine = line;
+                                logger.info('Found image element by search', {
+                                    foundAtLine: i + 1,
+                                    lineContent: line.substring(0, 150)
+                                });
+                                break;
+                            }
+                        }
+                        
+                        if (!targetLine) {
+                            logger.error('Search failed to find any image element', {
+                                patternsUsed: imgPatterns.map(p => p.toString()),
+                                filePreview: lines.slice(15, 25).map((l, i) => `${i + 16}: ${l}`)
+                            });
+                        }
+                    }
+
+                    // Check if target line actually contains an image/component
+                    // If not, search for image elements in nearby lines
+                    const hasImagePattern = targetLine && (
+                        /<img\s/i.test(targetLine) ||
+                        /<Image\s/i.test(targetLine) ||
+                        /src=/i.test(targetLine) ||
+                        /<[A-Z][a-zA-Z0-9]*\s+[^>]*?\/>/i.test(targetLine) // Component pattern
+                    );
+
+                    if (!hasImagePattern && targetLine) {
+                        logger.warn('Target line does not contain image element, searching nearby', {
+                            targetLine: targetLine.substring(0, 150),
+                            lineNumber: targetLineIndex + 1
+                        });
+
+                        // Search in a wider window around the target line (±20 lines, or entire file if small)
+                        const searchStart = Math.max(0, targetLineIndex - 20);
+                        const searchEnd = Math.min(lines.length, targetLineIndex + 20);
+                        
+                        const imgPatterns = [
+                            /<img\s/i,
+                            /<Image\s/i,
+                            /Logo/i,
+                            /Icon/i,
+                            /avatar/i,
+                            /src=/i,
+                        ];
+
+                        let found = false;
+                        for (let i = searchStart; i < searchEnd; i++) {
+                            const line = lines[i];
+                            if (imgPatterns.some(pattern => pattern.test(line))) {
+                                targetLineIndex = i;
+                                targetLine = line;
+                                found = true;
+                                logger.info('Found image element in nearby lines', {
+                                    foundAtLine: i + 1,
+                                    lineContent: line.substring(0, 150)
+                                });
+                                break;
+                            }
+                        }
+                        
+                        // If still not found in window, search entire file
+                        if (!found) {
+                            logger.warn('Not found in window, searching entire file');
+                            for (let i = 0; i < lines.length; i++) {
+                                const line = lines[i];
+                                if (imgPatterns.some(pattern => pattern.test(line))) {
+                                    targetLineIndex = i;
+                                    targetLine = line;
+                                    logger.info('Found image element in entire file search', {
+                                        foundAtLine: i + 1,
+                                        lineContent: line.substring(0, 150)
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    logger.info('Target line for image update', {
+                        lineNumber: targetLineIndex + 1,
+                        targetLine: targetLine?.substring(0, 200) || 'LINE NOT FOUND',
+                        totalLines: lines.length,
+                        isBackground: isBackgroundImage
+                    });
 
                     if (targetLine) {
                         if (isBackgroundImage) {
-                            // Background image logic would go here
-                            logger.info('Background image update - not implemented for upload');
+                            // Handle background-image style update
+                            // We need to update either inline style or CSS property
+                            logger.info('Processing background image update', { targetLine: targetLine.substring(0, 100) });
+
+                            // Import style application utils
+                            const { applyInlineStylesToSource } = await import('./style-modifier');
+
+                            // Apply background-image via inline styles
+                            const result = applyInlineStylesToSource(
+                                file.fileContents,
+                                [{
+                                    property: 'backgroundImage',
+                                    newValue: `url(${imageUrl})`,
+                                    oldValue: 'none' // Will be replaced regardless
+                                }],
+                                {
+                                    selector: selector || '',
+                                    lineNumber: targetLineIndex + 1
+                                }
+                            );
+
+                            if (result.applied.length > 0) {
+                                await agent.saveFile(
+                                    normalizedPath,
+                                    result.modified,
+                                    `feat: update background image to ${newFileName}`
+                                );
+
+                                // Deploy updated file
+                                if (typeof (agent as any).deployToSandbox === 'function') {
+                                    logger.info('Deploying background image to sandbox', {
+                                        sourceFile: normalizedPath,
+                                        imageFile: relativeFilePath,
+                                        imageSize: fileContent.length
+                                    });
+                                    
+                                    try {
+                                        await (agent as any).deployToSandbox(
+                                            [{
+                                                filePath: normalizedPath,
+                                                fileContents: result.modified,
+                                                filePurpose: file.filePurpose
+                                            }, {
+                                                filePath: relativeFilePath,
+                                                fileContents: fileContent,
+                                                filePurpose: 'asset'
+                                            }],
+                                            false,
+                                            'background image upload',
+                                            false,
+                                            undefined,
+                                            true // optimistic
+                                        );
+                                        
+                                        logger.info('Background image deployment complete');
+                                    } catch (deployError) {
+                                        logger.error('Background image deployment failed', {
+                                            error: deployError instanceof Error ? deployError.message : String(deployError)
+                                        });
+                                        throw deployError;
+                                    }
+                                } else {
+                                    logger.error('deployToSandbox method not found on agent');
+                                }
+
+                                logger.info('Background image updated successfully', { filePath: normalizedPath });
+                            } else {
+                                logger.warn('Failed to apply background image style', { 
+                                    failedReasons: result.failed 
+                                });
+                            }
                         } else {
                             // Update img src attribute with the URL
                             const srcPattern = /src=["']([^"']*)["']/;
                             // Also handle JSX-style src={...} - but replace with string literal
                             const jsxSrcPattern = /src=\{["']([^"']*)["']\}/;
                             const jsxVarPattern = /src=\{([^"'}]+)\}/;
+                            // Handle component replacement: <SomeComponent /> -> <img src="..." />
+                            const componentPattern = /<([A-Z][a-zA-Z0-9]*)\s+([^>]*?)\/>/;
 
                             let newLine = targetLine;
                             let replaced = false;
+                            let actualLineIndex = targetLineIndex;
 
-                            if (srcPattern.test(targetLine)) {
-                                newLine = targetLine.replace(srcPattern, `src="${imageUrl}"`);
-                                replaced = true;
-                            } else if (jsxSrcPattern.test(targetLine)) {
-                                newLine = targetLine.replace(jsxSrcPattern, `src="${imageUrl}"`);
-                                replaced = true;
-                            } else if (jsxVarPattern.test(targetLine)) {
-                                // Replacing a variable src={myImage} with a string literal src="/path..."
-                                newLine = targetLine.replace(jsxVarPattern, `src="${imageUrl}"`);
-                                replaced = true;
+                            // If we found <img but it doesn't have src= on the same line,
+                            // search the next few lines for src=
+                            if (/<img\s/i.test(targetLine) && !srcPattern.test(targetLine)) {
+                                logger.info('Found img tag without src on same line, searching next lines');
+                                for (let i = targetLineIndex + 1; i < Math.min(targetLineIndex + 5, lines.length); i++) {
+                                    if (srcPattern.test(lines[i])) {
+                                        actualLineIndex = i;
+                                        newLine = lines[i];
+                                        logger.info('Found src attribute on line', { lineNumber: i + 1, line: lines[i].substring(0, 150) });
+                                        break;
+                                    }
+                                }
                             }
 
+                            if (srcPattern.test(newLine)) {
+                                newLine = newLine.replace(srcPattern, `src="${imageUrl}"`);
+                                replaced = true;
+                            } else if (jsxSrcPattern.test(newLine)) {
+                                newLine = newLine.replace(jsxSrcPattern, `src="${imageUrl}"`);
+                                replaced = true;
+                            } else if (jsxVarPattern.test(newLine)) {
+                                // Replacing a variable src={myImage} with a string literal src="/path..."
+                                newLine = newLine.replace(jsxVarPattern, `src="${imageUrl}"`);
+                                replaced = true;
+                            } else if (componentPattern.test(targetLine)) {
+                                // Replace component like <CloudflareLogo className="..." /> with <img src="..." className="..." />
+                                const match = targetLine.match(componentPattern);
+                                if (match) {
+                                    const attributes = match[2];
+                                    newLine = targetLine.replace(componentPattern, `<img src="${imageUrl}" ${attributes}/>`);
+                                    replaced = true;
+                                    actualLineIndex = targetLineIndex;
+                                    logger.info('Replaced component with img tag', {
+                                        oldComponent: match[1],
+                                        attributes
+                                    });
+                                }
+                            }
+                            
+                            logger.info('Pattern matching result', {
+                                replaced,
+                                targetLinePreview: (actualLineIndex === targetLineIndex ? targetLine : lines[actualLineIndex])?.substring(0, 150),
+                                newLinePreview: newLine.substring(0, 150)
+                            });
+
                             if (replaced) {
-                                lines[sourceLocation.lineNumber - 1] = newLine;
+                                lines[actualLineIndex] = newLine;
                                 const updatedContent = lines.join('\n');
+
+                                logger.info('Saving updated source file', {
+                                    filePath: normalizedPath,
+                                    oldSrc: targetLine.substring(0, 150),
+                                    newSrc: newLine.substring(0, 150)
+                                });
 
                                 await agent.saveFile(
                                     normalizedPath,
@@ -1083,35 +1332,118 @@ export async function handleDesignModeImageUpload(
                                     `feat: update image source to ${newFileName}`
                                 );
 
-                                // Also trigger a sandbox deploy to ensure the new HTML/JS is served 
-                                // (The asset is served via static file server, but the code needs update)
-                                const deployToSandbox = (agent as any).deployToSandbox;
-                                if (deployToSandbox) {
-                                    await deployToSandbox(
-                                        [{
-                                            filePath: normalizedPath,
-                                            fileContents: updatedContent,
-                                            filePurpose: file.filePurpose
-                                        }, {
-                                            // Also deploy the image file specifically to ensure it's picked up
-                                            filePath: relativeFilePath,
-                                            fileContents: fileContent,
-                                            filePurpose: 'asset'
-                                        }],
-                                        false,
-                                        'image upload',
-                                        false,
-                                        undefined,
-                                        true // optimistic
-                                    );
+                                logger.info('File saved, deploying to sandbox');
+
+                                // Deploy both the updated source file AND the image file to sandbox
+                                // The image is deployed directly to sandbox filesystem (not saved to state)
+                                if (typeof (agent as any).deployToSandbox === 'function') {
+                                    logger.info('Deploying files to sandbox', {
+                                        sourceFile: normalizedPath,
+                                        imageFile: relativeFilePath,
+                                        imageSize: fileContent.length,
+                                        isBase64Prefixed: fileContent.startsWith('base64:'),
+                                        base64Preview: fileContent.substring(0, 50)
+                                    });
+                                    
+                                    try {
+                                        const deployResult = await (agent as any).deployToSandbox(
+                                            [{
+                                                filePath: normalizedPath,
+                                                fileContents: updatedContent,
+                                                filePurpose: file.filePurpose
+                                            }, {
+                                                // Deploy image directly to sandbox filesystem
+                                                // This bypasses state/SQLite to avoid size limits
+                                                filePath: relativeFilePath,
+                                                fileContents: fileContent,
+                                                filePurpose: 'asset'
+                                            }],
+                                            false, // redeploy
+                                            'image upload',
+                                            false, // clearLogs
+                                            undefined, // callbacks
+                                            true // optimistic
+                                        );
+                                        
+                                        logger.info('Deployment complete', {
+                                            success: !!deployResult,
+                                            previewURL: deployResult?.previewURL
+                                        });
+                                    } catch (deployError) {
+                                        logger.error('Deployment failed', {
+                                            error: deployError instanceof Error ? deployError.message : String(deployError)
+                                        });
+                                        throw deployError;
+                                    }
+                                } else {
+                                    logger.error('deployToSandbox method not found on agent');
                                 }
                             } else {
                                 logger.warn('Could not find src attribute pattern in target line', {
-                                    targetLine: targetLine.substring(0, 100)
+                                    targetLine: targetLine.substring(0, 200),
+                                    testedPatterns: ['src="..."', 'src={...}', 'src={"..."}'],
+                                    lineNumber: actualSourceLocation.lineNumber
                                 });
                             }
                         }
+                    } else {
+                        logger.error('Target line not found', {
+                            lineNumber: actualSourceLocation.lineNumber,
+                            totalLines: lines.length,
+                            filePath: normalizedPath
+                        });
                     }
+                } else {
+                    logger.error('File not found or has no contents', {
+                        normalizedPath,
+                        fileFound: !!file,
+                        hasContents: !!file?.fileContents
+                    });
+                }
+            } else {
+                // No valid source location - just deploy the image file standalone
+                // This happens when the frontend can't determine which file contains the element
+                logger.warn('Cannot update source file automatically - no valid file path provided', {
+                    hasSourceLocation: !!actualSourceLocation,
+                    sourceFilePath: actualSourceLocation?.filePath || 'none',
+                    selector,
+                    imageFile: relativeFilePath
+                });
+                
+                logger.info('Deploying image file only (manual src update required)', {
+                    imageFile: relativeFilePath,
+                    imageSize: fileContent.length
+                });
+                
+                if (typeof (agent as any).deployToSandbox === 'function') {
+                    try {
+                        const deployResult = await (agent as any).deployToSandbox(
+                            [{
+                                filePath: relativeFilePath,
+                                fileContents: fileContent,
+                                filePurpose: 'asset'
+                            }],
+                            false, // redeploy
+                            'standalone image upload',
+                            false, // clearLogs
+                            undefined, // callbacks
+                            true // optimistic
+                        );
+                        
+                        logger.info('Standalone image deployment complete', {
+                            success: !!deployResult,
+                            previewURL: deployResult?.previewURL,
+                            imagePath: imageUrl
+                        });
+                    } catch (deployError) {
+                        logger.error('Standalone image deployment failed', {
+                            error: deployError instanceof Error ? deployError.message : String(deployError)
+                        });
+                        throw deployError;
+                    }
+                } else {
+                    logger.error('deployToSandbox method not found on agent');
+                    throw new Error('deployToSandbox method not available');
                 }
             }
 
@@ -1126,6 +1458,8 @@ export async function handleDesignModeImageUpload(
                 success: true,
                 uploadId,
                 imagePath: imageUrl,
+                requiresManualUpdate: !hasValidSourceLocation,
+                sourceHint: actualSourceLocation?.filePath || selector || 'unknown element',
             }));
 
 

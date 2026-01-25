@@ -123,6 +123,8 @@ export type MonacoEditorProps = React.ComponentProps<'div'> & {
 	find?: string;
 	replace?: string;
 	enableTypeScriptFeatures?: 'auto' | boolean;
+	onChange?: (value: string) => void;
+	onSave?: (value: string) => void;
 };
 
 export const MonacoEditor = memo<MonacoEditorProps>(function MonacoEditor({
@@ -130,6 +132,8 @@ export const MonacoEditor = memo<MonacoEditorProps>(function MonacoEditor({
 	find,
 	replace,
 	enableTypeScriptFeatures = 'auto',
+	onChange,
+	onSave,
 	...props
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -210,6 +214,24 @@ export const MonacoEditor = memo<MonacoEditorProps>(function MonacoEditor({
 			fontSize: 13,
 			...createOptions,
 		});
+
+		// Add onChange listener
+		if (onChange) {
+			const model = editor.current.getModel();
+			if (model) {
+				model.onDidChangeContent(() => {
+					onChange(model.getValue());
+				});
+			}
+		}
+
+		// Add Cmd+S / Ctrl+S save handler
+		if (onSave) {
+			editor.current.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+				const value = editor.current?.getValue() || '';
+				onSave(value);
+			});
+		}
 
 		// Add scroll listener to detect user interaction
 		const editorDomNode = editor.current.getDomNode();
