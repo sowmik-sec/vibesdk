@@ -207,6 +207,12 @@ async function getSourceLocationWithReactGrab(element: HTMLElement): Promise<Des
         if (stack && stack.length > 0 && stack[0].source) {
             let filePath = stack[0].source.fileName || '';
 
+            // If filePath is empty/invalid, return null to trigger fallback
+            if (!filePath || filePath.trim().length === 0) {
+                console.warn('[VibeSDK] react-grab returned empty fileName, will try fallback');
+                return null;
+            }
+
             // Normalize container paths: /workspace/i-xxx/src/... -> src/...
             const match = filePath.match(/\/(?:workspace\/[^\/]+|app)\/(.+)/);
             if (match) {

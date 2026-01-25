@@ -289,25 +289,35 @@ export function handleWebSocketMessage(
                     });
                 }); break;
             case WebSocketMessageRequests.DESIGN_MODE_REFRESH_PREVIEW:
-                // Manually trigger a deploy to refresh the preview
+                // Manually trigger a deploy to refresh the preview after image upload
                 logger.info('Received design mode refresh preview request');
 
                 // Use the agent's deploy method to trigger a fresh deploy
                 (async () => {
                     try {
                         const files = agent.getBehavior().listFiles();
+                        
+                        // Log files to verify we have the updated content
+                        logger.info('Files to deploy:', {
+                            count: files.length,
+                            imagePaths: files.filter(f => f.filePath.includes('uploads')).map(f => f.filePath)
+                        });
+                        
                         // Deploy all files with optimistic=false for full health check
                         await (agent.getBehavior() as any).deployToSandbox(
                             files,
                             false, // clearContainer
-                            'design mode: manual preview refresh',
-                            false, // clearLogs
+                            'design mode: manual preview refresh after image upload',
+                            true,  // clearLogs
                             undefined, // callbacks
-                            false // optimistic - do full health check
+                            false // optimistic
                         );
+
+                        logger.info('Deployment complete, signaling reload');
 
                         sendToConnection(connection, WebSocketMessageResponses.DESIGN_MODE_REFRESH_COMPLETE, {
                             success: true,
+                            shouldReload: true
                         });
                         logger.info('Preview refresh completed successfully');
                     } catch (error) {
