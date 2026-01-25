@@ -711,8 +711,9 @@ export default function Chat() {
 								onRefreshPreview={designMode.refreshPreview}
 								onImageUpload={designMode.uploadImage}
 								isUploadingImage={designMode.isUploadingImage}
-								imageUploadProgress={designMode.imageUploadProgress}
-							/>
+							imageUploadProgress={designMode.imageUploadProgress}
+							previewUrl={previewUrl}
+						/>
 						</div>
 					) : (
 						<>

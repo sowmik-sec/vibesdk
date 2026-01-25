@@ -43,6 +43,8 @@ interface ImageControlProps {
     isUploading?: boolean;
     /** Upload progress (0-100) */
     uploadProgress?: number;
+    /** Preview URL base for resolving relative image paths */
+    previewBaseUrl?: string | null;
 }
 
 function extractBackgroundImageUrl(bgImage: string): string | null {
@@ -58,6 +60,7 @@ export function ImageControl({
     onImageUpload,
     isUploading = false,
     uploadProgress = 0,
+    previewBaseUrl,
 }: ImageControlProps) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [dragOver, setDragOver] = useState(false);
@@ -72,9 +75,22 @@ export function ImageControl({
     } | null>(null);
 
     // Determine the current image URL
-    const currentImageUrl = imageSrc || (
+    let currentImageUrl = imageSrc || (
         isBackgroundImage ? extractBackgroundImageUrl(styles.backgroundImage) : null
     );
+
+    // Make relative URLs absolute using the preview base URL
+    if (currentImageUrl && previewBaseUrl) {
+        try {
+            // If it's a relative URL (starts with / but not //)
+            if (currentImageUrl.startsWith('/') && !currentImageUrl.startsWith('//')) {
+                const baseUrl = new URL(previewBaseUrl);
+                currentImageUrl = `${baseUrl.origin}${currentImageUrl}`;
+            }
+        } catch (error) {
+            console.warn('[ImageControl] Failed to resolve image URL:', error);
+        }
+    }
 
     // Clean up preview URL on unmount
     useEffect(() => {

@@ -61,6 +61,8 @@ export interface DesignModePanelProps {
     isUploadingImage?: boolean;
     /** Image upload progress (0-100) */
     imageUploadProgress?: number;
+    /** Preview URL base for resolving relative image paths */
+    previewUrl?: string | null;
 }
 
 interface SectionProps {
@@ -239,6 +241,7 @@ export function DesignModePanel({
     onImageUpload,
     isUploadingImage = false,
     imageUploadProgress = 0,
+    previewUrl,
 }: DesignModePanelProps) {
     // Handle style changes with commit flag
     const handleStyleChange = useCallback((property: string, value: string, commit: boolean) => {
@@ -363,6 +366,7 @@ export function DesignModePanel({
                             onImageUpload={onImageUpload}
                             isUploading={isUploadingImage}
                             uploadProgress={imageUploadProgress}
+                            previewBaseUrl={previewUrl}
                         />
                     </Section>
                 )}
