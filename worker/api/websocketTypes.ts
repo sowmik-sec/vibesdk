@@ -688,6 +688,13 @@ export type DesignModeImageUploadRequest = {
 		lineNumber: number;
 		columnNumber?: number;
 	};
+	/** Element context (alternative field name used by frontend) */
+	elementContext?: {
+		filePath: string;
+		lineNumber: number;
+		columnNumber?: number;
+		selector?: string;
+	};
 	/** Whether this is for background-image (vs img src) */
 	isBackgroundImage?: boolean;
 };
